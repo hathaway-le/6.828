@@ -98,10 +98,10 @@
 #define KSTKGAP		(8*PGSIZE)   		// size of a kernel stack guard
 
 // Memory-mapped IO.
-#define MMIOLIM		(KSTACKTOP - PTSIZE)
+#define MMIOLIM		(KSTACKTOP - PTSIZE)//0xefc00000
 #define MMIOBASE	(MMIOLIM - PTSIZE)
 
-#define ULIM		(MMIOBASE)
+#define ULIM		(MMIOBASE)//0xef800000
 
 /*
  * User read-only mappings! Anything below here til UTOP are readonly to user.
