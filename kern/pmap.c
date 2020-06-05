@@ -391,7 +391,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 	size_t pdx = PDX(va);
 	size_t ptx = PTX(va);
 	struct PageInfo* allo;
-	
+
 	if(pgdir == NULL)
 	{
 		return NULL;
@@ -416,18 +416,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 				return NULL;
 			}
 		}
-		
 	}
-/* 		pde_t *pde = pgdir + PDX(va);
-	struct PageInfo *pageInfo;
-
-	if(!(*pde & PTE_P)){
-		if(create && (pageInfo = page_alloc(ALLOC_ZERO))){
-			++pageInfo->pp_ref; // increment reference count directly.
-			*pde = page2pa(pageInfo) | PTE_P | PTE_U | PTE_W; // Permissions.		
-		}else return NULL;
-	}
-	return (pte_t *)KADDR(PTE_ADDR(*pde)) + PTX(va);*/
 }
 
 //
