@@ -306,7 +306,7 @@ page_alloc(int alloc_flags)
 		if(alloc_flags & ALLOC_ZERO)
 		{
 			location = result - pages;//地址相减会除以sizeof(struct PageInfo *)
-			memset((void *)(location * PGSIZE + KERNBASE),'\0',PGSIZE);//所有虚地址能这么映射？
+			memset((void *)(location * PGSIZE + KERNBASE),'\0',PGSIZE);//exercise1只能映射4M内
 		}
 		return result;
 	}
@@ -328,7 +328,7 @@ page_free(struct PageInfo *pp)
 	// pp->pp_link is not NULL.
 	if(pp == NULL)
 	{
-		cprintf("pp is NULL\n");
+		cprintf("page_free: pp is NULL\n");
 	}
 	else
 	{
@@ -351,8 +351,15 @@ page_free(struct PageInfo *pp)
 void
 page_decref(struct PageInfo* pp)
 {
-	if (--pp->pp_ref == 0)
+	if(pp == NULL)
+	{
+		cprintf("page_decref: pp is NULL");
+	}
+	else
+	{
+		if (--pp->pp_ref == 0)
 		page_free(pp);
+	}
 }
 
 // Given 'pgdir', a pointer to a page directory, pgdir_walk returns
@@ -381,7 +388,46 @@ pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
 	// Fill this function in
-	return NULL;
+	size_t pdx = PDX(va);
+	size_t ptx = PTX(va);
+	struct PageInfo* allo;
+	
+	if(pgdir == NULL)
+	{
+		return NULL;
+	}
+	else
+	{
+		if(pgdir[pdx] && PTE_P)//二级页表在主存中，而非4KB页框
+		{
+			return (pte_t*)(KADDR(PTE_ADDR(pgdir[pdx]))) + ptx;//返回二级页表的某一项的地址，这一项未必指向某个4K页框，即P不一定为1
+		}
+		else
+		{
+			allo = page_alloc(ALLOC_ZERO);
+			if(create && allo)
+			{
+				allo->pp_ref++;
+				pgdir[pdx] = page2pa(allo) + PTE_P + PTE_W + PTE_U;//分配了一张二级页表
+				return (pte_t*)(KADDR(PTE_ADDR(pgdir[pdx]))) + ptx;
+			}
+			else
+			{
+				return NULL;
+			}
+		}
+		
+	}
+/* 		pde_t *pde = pgdir + PDX(va);
+	struct PageInfo *pageInfo;
+
+	if(!(*pde & PTE_P)){
+		if(create && (pageInfo = page_alloc(ALLOC_ZERO))){
+			++pageInfo->pp_ref; // increment reference count directly.
+			*pde = page2pa(pageInfo) | PTE_P | PTE_U | PTE_W; // Permissions.		
+		}else return NULL;
+	}
+	return (pte_t *)KADDR(PTE_ADDR(*pde)) + PTX(va);*/
 }
 
 //
@@ -399,6 +445,16 @@ static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
 	// Fill this function in
+	pte_t * pte;
+	size_t i;
+	size_t count = size/PGSIZE;
+	for(i = 0; i < count; i++)
+	{
+		pte = pgdir_walk(pgdir,(void *)(va + i*PGSIZE),1);
+		if(pte == NULL)
+			panic("boot_map_region: pgdir_walk fail.\n");
+		*pte = pa + i*PGSIZE + perm + PTE_P;
+	}
 }
 
 //
@@ -430,6 +486,33 @@ int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	// Fill this function in
+	pte_t * pte;
+	pte_t * pte_store;
+	struct PageInfo * page_found;
+
+	pte = pgdir_walk(pgdir,va,1);
+	if (pte == NULL)
+	{
+		return -E_NO_MEM;
+	}
+	else
+	{
+		if(*pte & PTE_P)//P何时何处会被清0，如何置换？
+		{
+			if(page2pa(pp) == PTE_ADDR(*pte))
+			{
+				*pte = page2pa(pp) + perm + PTE_P;
+				return 0;
+			}
+			else
+			{
+				page_remove(pgdir,va);			
+			}
+		}
+	}
+	
+	*pte = page2pa(pp) + perm + PTE_P;
+	pp->pp_ref++;
 	return 0;
 }
 
@@ -448,7 +531,14 @@ struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
 	// Fill this function in
-	return NULL;
+	pte_t * pte = pgdir_walk(pgdir,va,0);
+	if(pte == NULL)
+		return NULL;
+	if(!(*pte & PTE_P))
+		return NULL;
+	if(pte_store !=NULL)
+		*pte_store = pte;
+	return pa2page(*pte);//*pte指向页框基地址+权限，pa2page自带右移	
 }
 
 //
@@ -470,6 +560,15 @@ void
 page_remove(pde_t *pgdir, void *va)
 {
 	// Fill this function in
+	pte_t *pte_store;
+	struct PageInfo * page_found;
+	page_found = page_lookup(pgdir,va,&pte_store);
+	if(page_found != NULL)
+	{
+		*pte_store = 0;//P清0
+		page_decref(page_found);
+		tlb_invalidate(pgdir,va);
+	}
 }
 
 //
