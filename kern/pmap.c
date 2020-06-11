@@ -107,7 +107,7 @@ boot_alloc(uint32_t n)
 	nextfree = ROUNDUP((nextfree + n),PGSIZE);//申请n/4 × 32bit空间
 
 	//if((uint32_t)nextfree > KERNBASE + npages * PGSIZE)//不能超出128M
-	if((uint32_t)nextfree > 0xF0400000)	//其实超过第一个4M就没有意义了
+	if((uint32_t)nextfree > 0xF0400000)	//其实超过第一个4M就没有意义了,此时还是用的boot时期定义的页表
 		panic("Out of memory\n");
 	return result;
 }
@@ -144,6 +144,7 @@ mem_init(void)
 	// Permissions: kernel R, user R
 	kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;
 	//kern_pgdir虚拟地址在之前分配的4M内才能直接减去KERNBASE来计算物理地址,这个第一级页表在0xef400000-0xef800000项指向了一级页表的物理地址
+	//可以通过该区间内的虚拟地址访问一级页表，都是1024项
 
 	//////////////////////////////////////////////////////////////////////
 	// Allocate an array of npages 'struct PageInfo's and store it in 'pages'.
@@ -178,6 +179,9 @@ mem_init(void)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
 
+	boot_map_region(kern_pgdir,UPAGES,ROUNDUP(npages * sizeof(struct PageInfo),PGSIZE),PADDR(pages),(PTE_U | PTE_P));
+	//size 256K,直接用PTSIZE不大好，把UPAGES全部用满的话可以在支持2G物理内存，即4M core map
+	
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
 	// stack.  The kernel stack grows down from virtual address KSTACKTOP.
@@ -189,7 +193,7 @@ mem_init(void)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
-
+	boot_map_region(kern_pgdir,KSTACKTOP-KSTKSIZE,KSTKSIZE,PADDR(bootstack),(PTE_W | PTE_P));//32K   0x110000
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
 	// Ie.  the VA range [KERNBASE, 2^32) should map to
@@ -198,7 +202,7 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
-
+	boot_map_region(kern_pgdir,KERNBASE,-KERNBASE,0,(PTE_W | PTE_P));//实际上就映射了256M（32位虚拟地址为界），但物理内存就128M
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
 
@@ -408,7 +412,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 			if(create && allo)
 			{
 				allo->pp_ref++;
-				pgdir[pdx] = page2pa(allo) + PTE_P + PTE_W + PTE_U;//分配了一张二级页表
+				pgdir[pdx] = page2pa(allo) | PTE_P | PTE_W | PTE_U;//分配了一张二级页表
 				return (pte_t*)(KADDR(PTE_ADDR(pgdir[pdx]))) + ptx;
 			}
 			else
@@ -434,6 +438,7 @@ static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
 	// Fill this function in
+	
 	pte_t * pte;
 	size_t i;
 	size_t count = size/PGSIZE;
@@ -442,7 +447,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 		pte = pgdir_walk(pgdir,(void *)(va + i*PGSIZE),1);
 		if(pte == NULL)
 			panic("boot_map_region: pgdir_walk fail.\n");
-		*pte = pa + i*PGSIZE + perm + PTE_P;
+		*pte = (pa + i*PGSIZE) | perm | PTE_P;
 	}
 }
 
@@ -490,7 +495,7 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 		{
 			if(page2pa(pp) == PTE_ADDR(*pte))
 			{
-				*pte = page2pa(pp) + perm + PTE_P;
+				*pte = page2pa(pp) | perm | PTE_P;
 				return 0;
 			}
 			else
@@ -500,7 +505,7 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 		}
 	}
 	
-	*pte = page2pa(pp) + perm + PTE_P;
+	*pte = page2pa(pp) | perm | PTE_P;
 	pp->pp_ref++;
 	return 0;
 }
