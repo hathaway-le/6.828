@@ -98,10 +98,10 @@
 #define KSTKGAP		(8*PGSIZE)   		// size of a kernel stack guard
 
 // Memory-mapped IO.
-#define MMIOLIM		(KSTACKTOP - PTSIZE)
+#define MMIOLIM		(KSTACKTOP - PTSIZE)//0xefc00000
 #define MMIOBASE	(MMIOLIM - PTSIZE)
 
-#define ULIM		(MMIOBASE)
+#define ULIM		(MMIOBASE)//0xef800000
 
 /*
  * User read-only mappings! Anything below here til UTOP are readonly to user.
@@ -109,7 +109,7 @@
  */
 
 // User read-only virtual page table (see 'uvpt' below)
-#define UVPT		(ULIM - PTSIZE)
+#define UVPT		(ULIM - PTSIZE)//0xef400000
 // Read-only copies of the Page structures
 #define UPAGES		(UVPT - PTSIZE)
 // Read-only copies of the global env structures
