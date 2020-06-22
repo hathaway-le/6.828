@@ -66,6 +66,49 @@ trap_init(void)
 
 	// LAB 3: Your code here.
 
+	extern void divide_error();
+	extern void debug();
+	extern void nmi();
+	extern void int3();
+	extern void overflow();
+	extern void bounds();
+	extern void invalid();
+	extern void device_not_available();
+
+	extern void doublefault();
+	extern void invalid_tss();
+	extern void segment_not_present();
+	extern void stack_segment();
+  	extern void general_protection();
+	extern void page_fault();
+
+	extern void coprocessor_error();
+	extern void alignment_check();
+	extern void machine_check();
+	extern void simd_coprocessor_error();
+
+	//具体使用哪个gate，dpl设为多少，先不管
+	SETGATE(idt[T_DIVIDE],0,GD_KT,divide_error,0);
+	SETGATE(idt[T_DEBUG],0,GD_KT,debug,0);
+	SETGATE(idt[T_NMI],0,GD_KT,nmi,0);
+	SETGATE(idt[T_BRKPT],0,GD_KT,int3,0);
+	SETGATE(idt[T_OFLOW],0,GD_KT,overflow,0);
+	SETGATE(idt[T_BOUND],0,GD_KT,bounds,0);
+	SETGATE(idt[T_ILLOP],0,GD_KT,invalid,0);
+	SETGATE(idt[T_DEVICE],0,GD_KT,device_not_available,0);
+	
+	SETGATE(idt[T_DBLFLT],0,GD_KT,doublefault,0);
+	SETGATE(idt[T_TSS],0,GD_KT,invalid_tss,0);
+	SETGATE(idt[T_SEGNP],0,GD_KT,segment_not_present,0);
+	SETGATE(idt[T_STACK],0,GD_KT,stack_segment,0);
+	SETGATE(idt[T_GPFLT],0,GD_KT,general_protection,0);
+	SETGATE(idt[T_PGFLT],0,GD_KT,page_fault,0);
+
+	SETGATE(idt[T_FPERR],0,GD_KT,coprocessor_error,0);
+	SETGATE(idt[T_ALIGN],0,GD_KT,alignment_check,0);
+	SETGATE(idt[T_MCHK],0,GD_KT,machine_check,0);
+	SETGATE(idt[T_SIMDERR],0,GD_KT,simd_coprocessor_error,0);
+
 	// Per-CPU setup 
 	trap_init_percpu();
 }
