@@ -21,10 +21,12 @@
  * where NAME is the argument passed to TRAPHANDLER.
  */
 #define TRAPHANDLER(name, num)						\
-	.globl name;		/* define global symbol for 'name' */	\
+.data;                                                              \
+	.long name, num;           		             \
+.text; 			\
 	.type name, @function;	/* symbol type is function */		\
 	.align 2;		/* align function definition */		\
-	name:			/* function starts here */		\
+name:			/* function starts here */		\
 	pushl $(num);							\
 	jmp _alltraps
 
@@ -33,13 +35,19 @@
  * format in either case.
  */
 #define TRAPHANDLER_NOEC(name, num)					\
-	.globl name;							\
+.data;                                                              \
+	.long name, num;           		             \
+.text;				\
 	.type name, @function;						\
 	.align 2;							\
-	name:								\
+name:								\
 	pushl $0;							\
 	pushl $(num);							\
 	jmp _alltraps
+
+.data
+	.global entryPointOfTraps
+	entryPointOfTraps:
 
 .text
 
@@ -54,6 +62,7 @@ TRAPHANDLER_NOEC(overflow, T_OFLOW);
 TRAPHANDLER_NOEC(bounds, T_BOUND);
 TRAPHANDLER_NOEC(invalid, T_ILLOP);
 TRAPHANDLER_NOEC(device_not_available, T_DEVICE);
+TRAPHANDLER_NOEC(coprocessor_segment_overrun, T_COPROC);
 
 TRAPHANDLER(doublefault, T_DBLFLT);
 TRAPHANDLER(invalid_tss, T_TSS);
@@ -61,6 +70,7 @@ TRAPHANDLER(segment_not_present, T_SEGNP);
 TRAPHANDLER(stack_segment, T_STACK);
 TRAPHANDLER(general_protection, T_GPFLT);
 TRAPHANDLER(page_fault, T_PGFLT);
+TRAPHANDLER(reserved, T_RES);
 
 TRAPHANDLER_NOEC(coprocessor_error, T_FPERR);
 TRAPHANDLER_NOEC(alignment_check, T_ALIGN);
