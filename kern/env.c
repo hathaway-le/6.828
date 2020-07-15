@@ -225,10 +225,10 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 		return r;
 
 	// Generate an env_id for this environment.
-	generation = (e->env_id + (1 << ENVGENSHIFT)) & ~(NENV - 1);
+	generation = (e->env_id + (1 << ENVGENSHIFT)) & ~(NENV - 1);//0x1000第一个进程
 	if (generation <= 0)	// Don't create a negative env_id.
 		generation = 1 << ENVGENSHIFT;
-	e->env_id = generation | (e - envs);
+	e->env_id = generation | (e - envs);//0x1000
 
 	// Set the basic status variables.
 	e->env_parent_id = parent_id;
@@ -363,7 +363,7 @@ load_icode(struct Env *e, uint8_t *binary)
 	{
 		if(ph->p_type == ELF_PROG_LOAD)
 		{
-			region_alloc(e,(void *)ph->p_va,ph->p_memsz);
+			region_alloc(e,(void *)ph->p_va,ph->p_memsz);//加载的时候会完成虚拟地址的分配，访问未在此时分配的虚拟地址即非法访问
 			memcpy((void *)ph->p_va, (void *)(binary + ph->p_offset), ph->p_filesz);
 			memset((void *)(ph->p_va + ph->p_filesz),0,(ph->p_memsz - ph->p_filesz));
 		}
@@ -375,7 +375,7 @@ load_icode(struct Env *e, uint8_t *binary)
 	// at virtual address USTACKTOP - PGSIZE.
 
 	// LAB 3: Your code here.
-	region_alloc(e,(void *)(USTACKTOP - PGSIZE),PGSIZE);
+	region_alloc(e,(void *)(USTACKTOP - PGSIZE),PGSIZE);//预先分配一页，不够就在缺页中断里面申请,到lab3结束，并没有实现这一feature
 	lcr3(PADDR(kern_pgdir));
 }
 
@@ -393,7 +393,7 @@ env_create(uint8_t *binary, enum EnvType type)
 	struct Env * e;
 	int rc;
 	if((rc = env_alloc(&e,0))!=0)
-			panic("env_alloc: %e\n", rc);
+		panic("env_alloc: %e\n", rc);
 	e->env_type = type;//第一次调用时，e就是envs[0],不用赋值给curenv？
 	load_icode(e,binary);
 }

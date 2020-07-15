@@ -76,10 +76,11 @@ TRAPHANDLER_NOEC(coprocessor_error, T_FPERR);
 TRAPHANDLER_NOEC(alignment_check, T_ALIGN);
 TRAPHANDLER_NOEC(machine_check, T_MCHK);
 TRAPHANDLER_NOEC(simd_coprocessor_error, T_SIMDERR);
-
+TRAPHANDLER_NOEC(syscallHandler, T_SYSCALL);
 
 /*
- * Lab 3: Your code here for _alltraps,可以不需要.globl  ds和es必须是pushl，可能和Trapframe有关
+ * Lab 3: Your code here for _alltraps,可以不需要.globl  ds和es必须是pushl，可能和Trapframe有关,call仅自动装填返回地址和ebp，
+ * trap的参数struct Trapframe *tf就是pushl %esp
  */
 
 _alltraps:

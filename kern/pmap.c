@@ -424,8 +424,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 		}
 		else
 		{
-			allo = page_alloc(ALLOC_ZERO);
-			if(create && allo)
+			if(create && (allo = page_alloc(ALLOC_ZERO)))
 			{
 				allo->pp_ref++;
 				pgdir[pdx] = page2pa(allo) | PTE_P | PTE_W | PTE_U;//分配了一张二级页表
@@ -617,7 +616,22 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
-
+	pte_t * pte;
+	uintptr_t startVa = ROUNDDOWN((uintptr_t)va, PGSIZE), endVa = ROUNDUP((uintptr_t)(va + len), PGSIZE);
+	for(; startVa < endVa; startVa += PGSIZE)
+	{
+		if(startVa >= ULIM)
+		{
+			user_mem_check_addr = (startVa < (uintptr_t)va?(uintptr_t)va:startVa);
+			return -E_FAULT;
+		}
+		pte = pgdir_walk(env->env_pgdir,(void *)startVa,0);
+		if ( (pte == NULL) || ((*pte & (perm | PTE_P))!=(perm | PTE_P)))
+		{
+			user_mem_check_addr = (startVa < (uintptr_t)va?(uintptr_t)va:startVa);
+			return -E_FAULT;
+		}
+	}
 	return 0;
 }
 
