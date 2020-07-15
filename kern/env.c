@@ -119,7 +119,18 @@ env_init(void)
 {
 	// Set up envs array
 	// LAB 3: Your code here.
-
+	env_free_list = envs;
+	env_free_list->env_id = 0;
+	size_t i = 1;
+	struct Env * temp = envs;
+	struct Env * next = envs + 1;
+	for(;i < NENV;i++)
+	{
+		temp->env_link = next;
+		temp->env_id = 0;
+		temp++;
+		next++;
+	}
 	// Per-CPU part of the initialization
 	env_init_percpu();
 }
@@ -139,7 +150,7 @@ env_init_percpu(void)
 	asm volatile("movw %%ax,%%ds" : : "a" (GD_KD));
 	asm volatile("movw %%ax,%%ss" : : "a" (GD_KD));
 	// Load the kernel text segment into CS.
-	asm volatile("ljmp %0,$1f\n 1:\n" : : "i" (GD_KT));
+	asm volatile("ljmp %0,$1f\n 1:\n" : : "i" (GD_KT));//CS reg GD_KT，eip label 1
 	// For good measure, clear the local descriptor table (LDT),
 	// since we don't use it.
 	lldt(0);
@@ -182,10 +193,14 @@ env_setup_vm(struct Env *e)
 	//    - The functions in kern/pmap.h are handy.
 
 	// LAB 3: Your code here.
-
+	e->env_pgdir = (pde_t *)page2kva(p);//每个进程一张页表
+	memcpy(e->env_pgdir,kern_pgdir,PGSIZE);
+	p->pp_ref++;//一般情况下，存在用户空间的映射才需要引用计数，但用户一级页表和所有二级页表是个例外
+	//alloc没有动ref，kern_pgdir没有动ref，因为他在core map初始化之前申请，之后申请的二级页表也需要动ref，此处进程的一级页表也需要动ref
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
 	e->env_pgdir[PDX(UVPT)] = PADDR(e->env_pgdir) | PTE_P | PTE_U;
+	//UTOP以上，除了UVPT，其余都和kernel的页表一样，也就是说，用户一级页表指向的二级页表都不用自己改变，由kernel改变即可，UTOP以下，一开始就是各进程独立的
 
 	return 0;
 }
@@ -213,10 +228,10 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 		return r;
 
 	// Generate an env_id for this environment.
-	generation = (e->env_id + (1 << ENVGENSHIFT)) & ~(NENV - 1);
+	generation = (e->env_id + (1 << ENVGENSHIFT)) & ~(NENV - 1);//0x1000第一个进程
 	if (generation <= 0)	// Don't create a negative env_id.
 		generation = 1 << ENVGENSHIFT;
-	e->env_id = generation | (e - envs);
+	e->env_id = generation | (e - envs);//0x1000
 
 	// Set the basic status variables.
 	e->env_parent_id = parent_id;
@@ -279,6 +294,15 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+	void * end = ROUNDUP(va + len,PGSIZE);
+	void * start = ROUNDDOWN(va,PGSIZE);
+	struct PageInfo *p = NULL;
+	for(;start < end;start += PGSIZE)
+	{
+		if (!(p = page_alloc(ALLOC_ZERO)))
+			panic("region_alloc: page_alloc failed.\n");
+		page_insert(e->env_pgdir,p,start,(PTE_W | PTE_U | PTE_P));//page_insert给分配出来的物理内存增加引用
+	}
 }
 
 //
@@ -335,11 +359,36 @@ load_icode(struct Env *e, uint8_t *binary)
 	//  What?  (See env_run() and env_pop_tf() below.)
 
 	// LAB 3: Your code here.
+	struct Proghdr *ph, *eph;
+	struct Elf * elf = (struct Elf *) binary;//binary已经在内存中了，不用readseg从磁盘copy了
+		// is this a valid ELF?
+	if (elf->e_magic != ELF_MAGIC)
+		panic("load_icode: binary is not elf.\n");
+
+	// load each program segment (ignores ph flags)
+	ph = (struct Proghdr *) ((uint8_t *) elf + elf->e_phoff);
+	eph = ph + elf->e_phnum;
+
+	lcr3(PADDR(e->env_pgdir));//临时切换到进程的页表
+
+	for (; ph < eph; ph++)
+	{
+		if(ph->p_type == ELF_PROG_LOAD)
+		{
+			region_alloc(e,(void *)ph->p_va,ph->p_memsz);//加载的时候会完成虚拟地址的分配，访问未在此时分配的虚拟地址即非法访问
+			memcpy((void *)ph->p_va, (void *)(binary + ph->p_offset), ph->p_filesz);
+			memset((void *)(ph->p_va + ph->p_filesz),0,(ph->p_memsz - ph->p_filesz));
+		}
+	}
+
+	e->env_tf.tf_eip = elf->e_entry;
 
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
 
 	// LAB 3: Your code here.
+	region_alloc(e,(void *)(USTACKTOP - PGSIZE),PGSIZE);//预先分配一页，不够就在缺页中断里面申请,到lab3结束，并没有实现这一feature
+	lcr3(PADDR(kern_pgdir));
 }
 
 //
@@ -353,6 +402,12 @@ void
 env_create(uint8_t *binary, enum EnvType type)
 {
 	// LAB 3: Your code here.
+	struct Env * e;
+	int rc;
+	if((rc = env_alloc(&e,0))!=0)
+		panic("env_alloc: %e\n", rc);
+	e->env_type = type;//第一次调用时，e就是envs[0],不用赋值给curenv？
+	load_icode(e,binary);
 }
 
 //
@@ -483,7 +538,16 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
-
-	panic("env_run not yet implemented");
+	if(curenv && curenv->env_status == ENV_RUNNING)
+	{
+		curenv->env_status = ENV_RUNNABLE;
+	}
+	curenv = e;//原来的进程不保存？
+	curenv->env_status = ENV_RUNNING;
+	curenv->env_runs++;
+	lcr3(PADDR(curenv->env_pgdir));
+	env_pop_tf(&(curenv->env_tf));
+	//把env_tf地址给esp，再popal，pop es ds，把esp加8，移动到eip，iret执行abi定义的pop操作
+	//push在哪儿？
 }
 

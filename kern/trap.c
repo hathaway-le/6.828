@@ -72,7 +72,22 @@ trap_init(void)
 	extern struct Segdesc gdt[];
 
 	// LAB 3: Your code here.
-
+	//具体使用哪个gate，dpl设为多少，先不管
+	extern uint32_t entryPointOfTraps[];
+	//必须设置为U32数组，倒不一定非要是二维数组，因为一个是函数指针，一个是常数，所以不必为指针，不能设置为数组指针
+	size_t i;
+	size_t sig;
+	for(i = 0; i < 20; ++i)
+	{
+		sig = *(entryPointOfTraps+2*i+1);
+		SETGATE(idt[sig], 0, GD_KT, *(entryPointOfTraps+2*i), 0);
+	}
+	i = 3;
+	sig = *(entryPointOfTraps+2*i+1);
+	SETGATE(idt[sig], 0, GD_KT, *(entryPointOfTraps+2*i), 3);
+	i = 20;
+	sig = *(entryPointOfTraps+2*i+1);
+	SETGATE(idt[sig], 0, GD_KT, *(entryPointOfTraps+2*i), 3);
 	// Per-CPU setup 
 	trap_init_percpu();
 }
@@ -174,8 +189,6 @@ print_regs(struct PushRegs *regs)
 static void
 trap_dispatch(struct Trapframe *tf)
 {
-	// Handle processor exceptions.
-	// LAB 3: Your code here.
 
 	// Handle spurious interrupts
 	// The hardware sometimes raises these because of noise on the
@@ -190,6 +203,21 @@ trap_dispatch(struct Trapframe *tf)
 	// interrupt using lapic_eoi() before calling the scheduler!
 	// LAB 4: Your code here.
 
+	cprintf("The exception num: %d\n",tf->tf_trapno);
+	switch (tf->tf_trapno)
+	{
+	case T_PGFLT:
+		page_fault_handler(tf);
+		return;
+	case T_BRKPT:
+		monitor(tf);
+		return;
+	case T_SYSCALL:
+		tf->tf_regs.reg_eax = syscall(tf->tf_regs.reg_eax,tf->tf_regs.reg_edx,tf->tf_regs.reg_ecx,tf->tf_regs.reg_ebx,tf->tf_regs.reg_edi,tf->tf_regs.reg_esi);
+		return;
+	default:
+		break;
+	}
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
 	if (tf->tf_cs == GD_KT)
@@ -219,7 +247,7 @@ trap(struct Trapframe *tf)
 	// Check that interrupts are disabled.  If this assertion
 	// fails, DO NOT be tempted to fix it by inserting a "cli" in
 	// the interrupt path.
-	assert(!(read_eflags() & FL_IF));
+	assert(!(read_eflags() & FL_IF));//都当作中断door
 
 	if ((tf->tf_cs & 3) == 3) {
 		// Trapped from user mode.
@@ -271,7 +299,9 @@ page_fault_handler(struct Trapframe *tf)
 	// Handle kernel-mode page faults.
 
 	// LAB 3: Your code here.
-
+	if ((tf->tf_cs & 3) == 0) {
+		panic("kernel page fault va %08x\n",fault_va);
+	}
 	// We've already handled kernel-mode exceptions, so if we get here,
 	// the page fault happened in user mode.
 
@@ -306,6 +336,7 @@ page_fault_handler(struct Trapframe *tf)
 
 	// LAB 4: Your code here.
 
+	// 目前还没有缺页处理
 	// Destroy the environment that caused the fault.
 	cprintf("[%08x] user fault va %08x ip %08x\n",
 		curenv->env_id, fault_va, tf->tf_eip);
