@@ -220,11 +220,11 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
+	boot_map_region(kern_pgdir,KERNBASE,-KERNBASE,0,(PTE_W | PTE_P));//实际上就映射了256M（32位虚拟地址为界），但物理内存就128M
 
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
-
-	boot_map_region(kern_pgdir,KERNBASE,-KERNBASE,0,(PTE_W | PTE_P));//实际上就映射了256M（32位虚拟地址为界），但物理内存就128M
+	
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
 
