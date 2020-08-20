@@ -120,21 +120,19 @@ trap_init_percpu(void)
 	// user space on that CPU.
 	//
 	// LAB 4: Your code here:
-
+	thiscpu->cpu_ts.ts_esp0 = KSTACKTOP - cpunum() * (KSTKSIZE + KSTKGAP);
+	thiscpu->cpu_ts.ts_ss0 = GD_KD;
+	thiscpu->cpu_ts.ts_iomb = sizeof(struct Taskstate);
 	// Setup a TSS so that we get the right stack
 	// when we trap to the kernel.
-	ts.ts_esp0 = KSTACKTOP;
-	ts.ts_ss0 = GD_KD;
-	ts.ts_iomb = sizeof(struct Taskstate);
-
 	// Initialize the TSS slot of the gdt.
-	gdt[GD_TSS0 >> 3] = SEG16(STS_T32A, (uint32_t) (&ts),
+	gdt[(GD_TSS0 >> 3) + cpunum()] = SEG16(STS_T32A, (uint32_t) (&thiscpu->cpu_ts),
 					sizeof(struct Taskstate) - 1, 0);
-	gdt[GD_TSS0 >> 3].sd_s = 0;
+	gdt[(GD_TSS0 >> 3) + cpunum()].sd_s = 0;
 
 	// Load the TSS selector (like other segment selectors, the
 	// bottom three bits are special; we leave them 0)
-	ltr(GD_TSS0);
+	ltr(GD_TSS0 + 8 * cpunum());
 
 	// Load the IDT
 	lidt(&idt_pd);
@@ -192,7 +190,7 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle processor exceptions.
 	// LAB 3: Your code here.
 	
-	cprintf("The exception num: %d\n",tf->tf_trapno);
+//	cprintf("The exception num: %d\n",tf->tf_trapno);
 	switch (tf->tf_trapno)
 	{
 	case T_PGFLT:
@@ -258,10 +256,11 @@ trap(struct Trapframe *tf)
 		// Acquire the big kernel lock before doing any
 		// serious kernel work.
 		// LAB 4: Your code here.
+		lock_kernel();
 		assert(curenv);
 
 		// Garbage collect if current enviroment is a zombie
-		if (curenv->env_status == ENV_DYING) {
+		if (curenv->env_status == ENV_DYING) {//这个僵尸进程是怎么进中断的
 			env_free(curenv);
 			curenv = NULL;
 			sched_yield();
@@ -286,7 +285,10 @@ trap(struct Trapframe *tf)
 	// scheduled, so we should return to the current environment
 	// if doing so makes sense.
 	if (curenv && curenv->env_status == ENV_RUNNING)
+	{
+//		cprintf("continue\n");
 		env_run(curenv);
+	}
 	else
 		sched_yield();
 }

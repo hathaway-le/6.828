@@ -228,7 +228,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 		return r;
 
 	// Generate an env_id for this environment.
-	generation = (e->env_id + (1 << ENVGENSHIFT)) & ~(NENV - 1);//0x1000第一个进程
+	generation = (e->env_id + (1 << ENVGENSHIFT)) & ~(NENV - 1);//0x1000第一个进程，再次分配的时候，会再加一个1000,如果env_id在destroy的时候没有清0的话
 	if (generation <= 0)	// Don't create a negative env_id.
 		generation = 1 << ENVGENSHIFT;
 	e->env_id = generation | (e - envs);//0x1000
@@ -474,7 +474,7 @@ env_destroy(struct Env *e)
 	// If e is currently running on other CPUs, we change its state to
 	// ENV_DYING. A zombie environment will be freed the next time
 	// it traps to the kernel.
-	if (e->env_status == ENV_RUNNING && curenv != e) {
+	if (e->env_status == ENV_RUNNING && curenv != e) {//父进程回收僵尸进程，如果父进程没有结束的话，会继续执行
 		e->env_status = ENV_DYING;
 		return;
 	}
@@ -483,7 +483,7 @@ env_destroy(struct Env *e)
 
 	if (curenv == e) {
 		curenv = NULL;
-		sched_yield();
+		sched_yield();//这里保证了一个用户进程执行完之后，回去envs里面找下一个继续执行，即使是这个进程page fault，也会继续调用下一个env
 	}
 }
 
@@ -546,7 +546,9 @@ env_run(struct Env *e)
 	curenv->env_status = ENV_RUNNING;
 	curenv->env_runs++;
 	lcr3(PADDR(curenv->env_pgdir));
-	env_pop_tf(&(curenv->env_tf));
+	unlock_kernel();
+	env_pop_tf(&(curenv->env_tf));//尽管切换了页表，内核空间的虚拟地址映射不变
+	//curenv里面eip指向？取决于异常种类，int这种自陷指令，是指向自陷指令的下一条指令，这个和eip寄存器的值是不一样的，eip寄存器的值随时指向下一个要执行的指令
 	//把env_tf地址给esp，再popal，pop es ds，把esp加8，移动到eip，iret执行abi定义的pop操作
 	//push在哪儿？
 }

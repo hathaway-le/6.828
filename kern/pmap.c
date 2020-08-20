@@ -53,7 +53,6 @@ i386_detect_memory(void)
 
 	npages = totalmem / (PGSIZE / 1024);//32768
 	npages_basemem = basemem / (PGSIZE / 1024);
-
 	cprintf("Physical memory: %uK available, base = %uK, extended = %uK\n",totalmem, basemem, totalmem - basemem);//Total 128M
 }
 
@@ -97,6 +96,7 @@ boot_alloc(uint32_t n)
 	if (!nextfree) {
 		extern char end[];
 		nextfree = ROUNDUP((char *) end, PGSIZE);//向上4K对齐
+		cprintf("first nextfree: 0x%x\n",nextfree);
 	}
 
 	// Allocate a chunk large enough to hold 'n' bytes, then update
@@ -211,7 +211,7 @@ mem_init(void)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
-	boot_map_region(kern_pgdir,KSTACKTOP-KSTKSIZE,KSTKSIZE,PADDR(bootstack),(PTE_W | PTE_P));//32K   0x110000
+	// boot_map_region(kern_pgdir,KSTACKTOP-KSTKSIZE,KSTKSIZE,PADDR(bootstack),(PTE_W | PTE_P));//32K   0x110000
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
 	// Ie.  the VA range [KERNBASE, 2^32) should map to
@@ -272,7 +272,11 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
-
+	// bootstack就不用了
+	for(int i = 0;i < NCPU ; i++)
+	{
+		boot_map_region(kern_pgdir,KSTACKTOP - i * (KSTKSIZE + KSTKGAP) - KSTKSIZE,KSTKSIZE,PADDR(percpu_kstacks[i]),(PTE_W | PTE_P));
+	}
 }
 
 // --------------------------------------------------------------
@@ -315,20 +319,26 @@ page_init(void)
 	pages[0].pp_link = NULL;
 	//[0,PGSIZE)
 	size_t i,npages_coremap_end;
-	for (i = 1; i < npages_basemem; i++) {
+	for (i = 1; i < PGNUM(MPENTRY_PADDR); i++) {
+			pages[i].pp_ref = 0;
+			pages[i].pp_link = page_free_list;
+			page_free_list = &pages[i];
+	}
+	pages[i++].pp_ref = 0;
+	pages[i++].pp_link = NULL;
+	for (; i < npages_basemem; i++) {
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
 		page_free_list = &pages[i];
 	}
-	//[PGSIZE,VGA)
-	//npages_coremap_end = ((uint32_t)(struct PageInfo *)(pages + npages)-KERNBASE)/PGSIZE;
-	npages_coremap_end = ((uint32_t)boot_alloc(0)-KERNBASE)/PGSIZE;//pages + npages不能保证4K对齐，此处碰巧是对齐的
+	//[0x7000,0x000A0000)
+	npages_coremap_end = ((uint32_t)boot_alloc(0)-KERNBASE)/PGSIZE;
 	for(i = npages_basemem; i < npages_coremap_end; i++)
 	{
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = NULL;
 	}
-	//[VGA,coremap_end)
+	//[0x000A0000,coremap_end)
 	for (i = npages_coremap_end; i < npages; i++) {
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
@@ -659,7 +669,14 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	physaddr_t start_pa = ROUNDDOWN(pa,PGSIZE);
+	physaddr_t end_pa = ROUNDUP(pa+size,PGSIZE);
+	size_t len = end_pa-start_pa;
+	if(len > (MMIOLIM - base))
+		panic("overflow MMIOLIM!\n");
+	boot_map_region(kern_pgdir,base,len,start_pa,(PTE_PCD|PTE_PWT|PTE_W));
+	base += len;
+	return (void *)(base - len);
 }
 
 static uintptr_t user_mem_check_addr;
