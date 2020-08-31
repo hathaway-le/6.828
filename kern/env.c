@@ -388,10 +388,11 @@ load_icode(struct Env *e, uint8_t *binary)
 
 	// LAB 3: Your code here.
 	region_alloc(e,(void *)(USTACKTOP - PGSIZE),PGSIZE);//预先分配一页，不够就在缺页中断里面申请,到lab3结束，并没有实现这一feature
+	cprintf("USTACKTOP - PGSIZE 0x%x\n",USTACKTOP - PGSIZE);
 	lcr3(PADDR(kern_pgdir));
 }
 
-//
+//	
 // Allocates a new env with env_alloc, loads the named elf
 // binary into it with load_icode, and sets its env_type.
 // This function is ONLY called during kernel initialization,

@@ -146,6 +146,11 @@ mem_init(void)
 
 	// Permissions: kernel R, user R
 	kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;
+	//the virtual address of the UVPD is (0x3BD<<22)|(0x3BD<<12)
+	//.set uvpd, (UVPT+(UVPT>>12)*4)
+	//用户空间访问uvpd，这才是env_pgdir
+	//和boot_map_region直接赋虚拟地址不一样，这个是这个是二次求和计算出来的（对于env_pgdir就像是二次递归，这个二是和硬件页表层数相关的,到了搜索页内偏移量的时候，后12位是0,所以指向env_pgdir首部）
+	//u32 uvpt[PGNUM(pageVa)] 相当于UVPT+(pageVa>>12)*4，右移12位先把原来用于搜索页内偏移量的数清0,先第一次页表计算，0x3BD<<22，找到一级页表，然后硬件计算UVPT+(pageVa>>12)*4的中间10位，即pageVa的前10位，得到二级页表地址，即env_pgdir[PDX(pageVa)]，最后通过计算后12位offset（10×32bit，从地址上看，和前面2个10位寻找页表项一样），找到pageVa二级页表项
 	//kern_pgdir虚拟地址在之前分配的4M内才能直接减去KERNBASE来计算物理地址,这个第一级页表在0xef400000-0xef800000项指向了一级页表的物理地址
 	//可以通过该区间内的虚拟地址访问一级页表，都是1024项
 

@@ -341,8 +341,33 @@ page_fault_handler(struct Trapframe *tf)
 	//   (the 'tf' variable points at 'curenv->env_tf').
 
 	// LAB 4: Your code here.
+	if(curenv->env_pgfault_upcall)
+	{
+		struct UTrapframe *Utf;
+		if(tf->tf_esp >= (UXSTACKTOP - PGSIZE) && tf->tf_esp <= (UXSTACKTOP - 1))
+		{
+			Utf = (struct UTrapframe *)(tf->tf_esp - 4 - sizeof(struct UTrapframe));//tf_esp类型是uint32，不是指数类型，Utf会向下溢出吗？ tf_esp那个地址是被使用的，要-4
+		}
+		else
+		{
+			Utf = (struct UTrapframe *)(UXSTACKTOP - sizeof(struct UTrapframe));
+		}
 
-	// 目前还没有缺页处理
+		user_mem_assert(curenv, (void *)Utf, 1, PTE_W);
+		//utf会被向下4K对齐，异常栈大小最多一个PGSIZE，若向下溢出，进入Empty Memory，这里能测出来。
+		//但是运行env_pgfault_upcall的时候溢出了怎么办
+
+		Utf->utf_esp = tf->tf_esp;
+		Utf->utf_eflags = tf->tf_eflags;
+		Utf->utf_eip = tf->tf_eip;
+		Utf->utf_regs = tf->tf_regs;
+		Utf->utf_err = tf->tf_err;
+		Utf->utf_fault_va = fault_va;
+		
+		curenv->env_tf.tf_eip = (uintptr_t)curenv->env_pgfault_upcall;
+		curenv->env_tf.tf_esp = (uintptr_t)Utf;
+		env_run(curenv); // never return.
+	}
 	// Destroy the environment that caused the fault.
 	cprintf("[%08x] user fault va %08x ip %08x\n",
 		curenv->env_id, fault_va, tf->tf_eip);
