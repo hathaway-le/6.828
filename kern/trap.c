@@ -72,7 +72,22 @@ trap_init(void)
 	extern struct Segdesc gdt[];
 
 	// LAB 3: Your code here.
-
+	//具体使用哪个gate，dpl设为多少，先不管
+	extern uint32_t entryPointOfTraps[];
+	//必须设置为U32数组，倒不一定非要是二维数组，因为一个是函数指针，一个是常数，所以不必为指针，不能设置为数组指针
+	size_t i;
+	size_t sig;
+	for(i = 0; i < 40; ++i)
+	{
+		sig = *(entryPointOfTraps+2*i+1);
+		SETGATE(idt[sig], 0, GD_KT, *(entryPointOfTraps+2*i), 0);
+	}
+	i = 3;
+	sig = *(entryPointOfTraps+2*i+1);
+	SETGATE(idt[sig], 0, GD_KT, *(entryPointOfTraps+2*i), 3);
+	i = 20;
+	sig = *(entryPointOfTraps+2*i+1);
+	SETGATE(idt[sig], 0, GD_KT, *(entryPointOfTraps+2*i), 3);
 	// Per-CPU setup 
 	trap_init_percpu();
 }
@@ -105,21 +120,19 @@ trap_init_percpu(void)
 	// user space on that CPU.
 	//
 	// LAB 4: Your code here:
-
+	thiscpu->cpu_ts.ts_esp0 = KSTACKTOP - cpunum() * (KSTKSIZE + KSTKGAP);
+	thiscpu->cpu_ts.ts_ss0 = GD_KD;
+	thiscpu->cpu_ts.ts_iomb = sizeof(struct Taskstate);//那么0-sizeof(struct Taskstate)就是Taskstate？防止io映射重叠？
 	// Setup a TSS so that we get the right stack
 	// when we trap to the kernel.
-	ts.ts_esp0 = KSTACKTOP;
-	ts.ts_ss0 = GD_KD;
-	ts.ts_iomb = sizeof(struct Taskstate);
-
 	// Initialize the TSS slot of the gdt.
-	gdt[GD_TSS0 >> 3] = SEG16(STS_T32A, (uint32_t) (&ts),
+	gdt[(GD_TSS0 >> 3) + cpunum()] = SEG16(STS_T32A, (uint32_t) (&thiscpu->cpu_ts),
 					sizeof(struct Taskstate) - 1, 0);
-	gdt[GD_TSS0 >> 3].sd_s = 0;
+	gdt[(GD_TSS0 >> 3) + cpunum()].sd_s = 0;
 
 	// Load the TSS selector (like other segment selectors, the
 	// bottom three bits are special; we leave them 0)
-	ltr(GD_TSS0);
+	ltr(GD_TSS0 + 8 * cpunum());
 
 	// Load the IDT
 	lidt(&idt_pd);
@@ -176,6 +189,22 @@ trap_dispatch(struct Trapframe *tf)
 {
 	// Handle processor exceptions.
 	// LAB 3: Your code here.
+	
+//	cprintf("The exception num: %d\n",tf->tf_trapno);
+	switch (tf->tf_trapno)
+	{
+	case T_PGFLT:
+		page_fault_handler(tf);
+		return;
+	case T_BRKPT:
+		monitor(tf);
+		return;
+	case T_SYSCALL:
+		tf->tf_regs.reg_eax = syscall(tf->tf_regs.reg_eax,tf->tf_regs.reg_edx,tf->tf_regs.reg_ecx,tf->tf_regs.reg_ebx,tf->tf_regs.reg_edi,tf->tf_regs.reg_esi);
+		return;
+	default:
+		break;
+	}
 
 	// Handle spurious interrupts
 	// The hardware sometimes raises these because of noise on the
@@ -189,6 +218,11 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle clock interrupts. Don't forget to acknowledge the
 	// interrupt using lapic_eoi() before calling the scheduler!
 	// LAB 4: Your code here.
+	if(tf->tf_trapno == (IRQ_OFFSET + IRQ_TIMER)){
+//		cprintf("clock interrupts %d\n",cpunum());
+		lapic_eoi();
+		sched_yield();
+	}
 
 	// Handle keyboard and serial interrupts.
 	// LAB 5: Your code here.
@@ -222,17 +256,18 @@ trap(struct Trapframe *tf)
 	// Check that interrupts are disabled.  If this assertion
 	// fails, DO NOT be tempted to fix it by inserting a "cli" in
 	// the interrupt path.
-	assert(!(read_eflags() & FL_IF));
+	assert(!(read_eflags() & FL_IF));//都当作中断door
 
 	if ((tf->tf_cs & 3) == 3) {
 		// Trapped from user mode.
 		// Acquire the big kernel lock before doing any
 		// serious kernel work.
 		// LAB 4: Your code here.
+		lock_kernel();
 		assert(curenv);
 
 		// Garbage collect if current enviroment is a zombie
-		if (curenv->env_status == ENV_DYING) {
+		if (curenv->env_status == ENV_DYING) {//这个僵尸进程是怎么进中断的
 			env_free(curenv);
 			curenv = NULL;
 			sched_yield();
@@ -257,7 +292,10 @@ trap(struct Trapframe *tf)
 	// scheduled, so we should return to the current environment
 	// if doing so makes sense.
 	if (curenv && curenv->env_status == ENV_RUNNING)
+	{
+//		cprintf("continue\n");
 		env_run(curenv);
+	}
 	else
 		sched_yield();
 }
@@ -274,7 +312,9 @@ page_fault_handler(struct Trapframe *tf)
 	// Handle kernel-mode page faults.
 
 	// LAB 3: Your code here.
-
+	if ((tf->tf_cs & 3) == 0) {
+		panic("kernel page fault va %08x\n",fault_va);
+	}
 	// We've already handled kernel-mode exceptions, so if we get here,
 	// the page fault happened in user mode.
 
@@ -308,7 +348,33 @@ page_fault_handler(struct Trapframe *tf)
 	//   (the 'tf' variable points at 'curenv->env_tf').
 
 	// LAB 4: Your code here.
+	if(curenv->env_pgfault_upcall)
+	{
+		struct UTrapframe *Utf;
+		if(tf->tf_esp >= (UXSTACKTOP - PGSIZE) && tf->tf_esp <= (UXSTACKTOP - 1))
+		{
+			Utf = (struct UTrapframe *)(tf->tf_esp - 4 - sizeof(struct UTrapframe));//tf_esp类型是uint32，不是指数类型，Utf会向下溢出吗？ tf_esp那个地址是被使用的，要-4
+		}
+		else
+		{
+			Utf = (struct UTrapframe *)(UXSTACKTOP - sizeof(struct UTrapframe));
+		}
 
+		user_mem_assert(curenv, (void *)Utf, 1, PTE_W);
+		//utf会被向下4K对齐，异常栈大小最多一个PGSIZE，若向下溢出，进入Empty Memory，这里能测出来。
+		//但是运行env_pgfault_upcall的时候溢出了怎么办
+
+		Utf->utf_esp = tf->tf_esp;
+		Utf->utf_eflags = tf->tf_eflags;
+		Utf->utf_eip = tf->tf_eip;
+		Utf->utf_regs = tf->tf_regs;
+		Utf->utf_err = tf->tf_err;
+		Utf->utf_fault_va = fault_va;
+		
+		curenv->env_tf.tf_eip = (uintptr_t)curenv->env_pgfault_upcall;
+		curenv->env_tf.tf_esp = (uintptr_t)Utf;
+		env_run(curenv); // never return.
+	}
 	// Destroy the environment that caused the fault.
 	cprintf("[%08x] user fault va %08x ip %08x\n",
 		curenv->env_id, fault_va, tf->tf_eip);
