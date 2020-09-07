@@ -124,7 +124,7 @@ sys_env_set_status(envid_t envid, int status)
 	if(status != ENV_NOT_RUNNABLE && status != ENV_RUNNABLE)
 		return -E_INVAL;
 	e->env_status = status;
-
+//	cprintf("sys_env_set_status %d\n",envid);
 	return 0;
 }
 
@@ -142,7 +142,7 @@ sys_env_set_pgfault_upcall(envid_t envid, void *func)
 	// LAB 4: Your code here.
 	int rc;
 	struct Env *e;
-	cprintf("envid %d\n",envid);
+//	cprintf("sys_env_set_pgfault_upcall envid %d\n",envid);
 	if((rc = envid2env(envid,&e,1)) != 0)
 		return rc;
 	e->env_pgfault_upcall = func;
@@ -196,6 +196,7 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 		page_free(Page);
 		return rc;
 	}
+//	cprintf("sys_page_alloc\n");
 	return 0;
 }
 
@@ -244,7 +245,6 @@ sys_page_map(envid_t srcenvid, void *srcva,
 		return -E_INVAL;
 	if(((perm & (PTE_U | PTE_P)) != (PTE_U | PTE_P)) || (perm & (~PTE_SYSCALL)))
 		return -E_INVAL;
-	cprintf("p_s: %x \n",(*p_s)&0xfff);
 	if((perm & PTE_W) && !((*p_s) & PTE_W))
 		return -E_INVAL;
 	return page_insert(d->env_pgdir,Page_s,dstva,perm);
@@ -316,7 +316,36 @@ static int
 sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 {
 	// LAB 4: Your code here.
-	panic("sys_ipc_try_send not implemented");
+	struct Env *receiverEnv, *currentEnv;
+	int32_t rc;
+	envid2env(0, &currentEnv, 0);
+	if((rc = envid2env(envid, &receiverEnv, 0)) < 0)//checkperm是0,意味着给后面的page_insert权限
+		return rc;
+	if(!receiverEnv->env_ipc_recving)//必须先接受在发送
+		return -E_IPC_NOT_RECV;
+	if((uintptr_t)srcva < UTOP){
+		struct PageInfo *pageInfo;
+		pte_t *pte;
+		if(((uintptr_t)srcva & (PGSIZE - 1)))
+			return -E_INVAL;
+		if(((perm & (PTE_U | PTE_P)) != (PTE_U | PTE_P)) || (perm & (~PTE_SYSCALL)))
+			return -E_INVAL;
+		if(!(pageInfo = page_lookup(currentEnv->env_pgdir, srcva, &pte)))
+			return -E_INVAL;
+		if((perm & PTE_W) && !((*pte) & PTE_W))
+			return -E_INVAL;
+		if((uintptr_t)receiverEnv->env_ipc_dstva < UTOP){//大于等于UTOP也不报错，默认传值
+			if((rc = page_insert(receiverEnv->env_pgdir, pageInfo, receiverEnv->env_ipc_dstva, perm)) < 0)
+				return rc;
+		}
+	}
+	receiverEnv->env_ipc_recving = 0;
+	receiverEnv->env_ipc_value = value;
+	receiverEnv->env_ipc_from = currentEnv->env_id;
+	receiverEnv->env_ipc_perm = perm;
+	receiverEnv->env_status = ENV_RUNNABLE;
+	receiverEnv->env_tf.tf_regs.reg_eax = 0;//sys_ipc_recv真正的return 0
+	return 0;
 }
 
 // Block until a value is ready.  Record that you want to receive
@@ -334,7 +363,18 @@ static int
 sys_ipc_recv(void *dstva)
 {
 	// LAB 4: Your code here.
-	panic("sys_ipc_recv not implemented");
+	if((uint32_t)dstva < UTOP && (uint32_t)dstva & (PGSIZE - 1))
+	{
+		return -E_INVAL;
+	}
+	struct Env *e;
+	envid2env(0,&e,0);
+	
+	e->env_status = ENV_NOT_RUNNABLE;
+	e->env_ipc_dstva = dstva;
+	e->env_ipc_recving = true;
+
+	sys_yield();//走的syscall，切回来的时候，eip应该是指向int指令后面一条指令，至少会把eax赋给ret，不走kern的syscall了
 	return 0;
 }
 
@@ -357,6 +397,9 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	case SYS_page_map:return sys_page_map((envid_t)a1, (void *)a2, (envid_t)a3, (void *)a4, a5);
 	case SYS_page_unmap:return sys_page_unmap((envid_t)a1, (void *)a2);
 	case SYS_env_set_pgfault_upcall: return sys_env_set_pgfault_upcall((envid_t)a1, (void *)a2);
+	case SYS_yield: sys_yield();break;
+	case SYS_ipc_recv: return sys_ipc_recv((void *) a1);
+	case SYS_ipc_try_send: return sys_ipc_try_send((envid_t)a1,a2,(void *) a3,(unsigned)a4);
 	default:
 		return -E_INVAL;
 	}

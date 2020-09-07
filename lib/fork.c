@@ -126,7 +126,7 @@ fork(void)
 		// The copied value of the global variable 'thisenv'
 		// is no longer valid (it refers to the parent!).
 		// Fix it and return 0.
-		thisenv = &envs[ENVX(sys_getenvid())];//这个是用户空间定义的变量
+		thisenv = &envs[ENVX(sys_getenvid())];//这个是用户空间定义的变量, 在ipc的时候用到
 		return 0;
 	}
 	for(pageVa = UTEXT; pageVa < USTACKTOP; pageVa += PGSIZE){

@@ -262,6 +262,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 
 	// Enable interrupts while in user mode.
 	// LAB 4: Your code here.
+	e->env_tf.tf_eflags |= FL_IF;//env_run pop的时候恢复，进入trap的时候cli
 
 	// Clear the page fault handler until user installs one.
 	e->env_pgfault_upcall = 0;

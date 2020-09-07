@@ -77,7 +77,7 @@ trap_init(void)
 	//必须设置为U32数组，倒不一定非要是二维数组，因为一个是函数指针，一个是常数，所以不必为指针，不能设置为数组指针
 	size_t i;
 	size_t sig;
-	for(i = 0; i < 20; ++i)
+	for(i = 0; i < 40; ++i)
 	{
 		sig = *(entryPointOfTraps+2*i+1);
 		SETGATE(idt[sig], 0, GD_KT, *(entryPointOfTraps+2*i), 0);
@@ -122,7 +122,7 @@ trap_init_percpu(void)
 	// LAB 4: Your code here:
 	thiscpu->cpu_ts.ts_esp0 = KSTACKTOP - cpunum() * (KSTKSIZE + KSTKGAP);
 	thiscpu->cpu_ts.ts_ss0 = GD_KD;
-	thiscpu->cpu_ts.ts_iomb = sizeof(struct Taskstate);
+	thiscpu->cpu_ts.ts_iomb = sizeof(struct Taskstate);//那么0-sizeof(struct Taskstate)就是Taskstate？防止io映射重叠？
 	// Setup a TSS so that we get the right stack
 	// when we trap to the kernel.
 	// Initialize the TSS slot of the gdt.
@@ -218,7 +218,11 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle clock interrupts. Don't forget to acknowledge the
 	// interrupt using lapic_eoi() before calling the scheduler!
 	// LAB 4: Your code here.
-
+	if(tf->tf_trapno == (IRQ_OFFSET + IRQ_TIMER)){
+//		cprintf("clock interrupts %d\n",cpunum());
+		lapic_eoi();
+		sched_yield();
+	}
 
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);

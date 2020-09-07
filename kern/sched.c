@@ -40,17 +40,18 @@ sched_yield(void)
 	{
 		if(envs[cur_num].env_status == ENV_RUNNABLE)
 		{
+			//cprintf("select cur_num: %d\n",cur_num);
 			env_run(&envs[cur_num]);
 		}
 		cur_num = (cur_num + 1) % NENV;
 	}
 	if(curenv && curenv->env_status == ENV_RUNNING)//trap的话不会执行到sched_yield，直接env_run了
 	{
-//		cprintf("select the previous env\n");
+		//cprintf("select the previous env\n");
 		env_run(curenv);
 	}
 	// sched_halt never returns
-//	cprintf("halt\n");
+	//cprintf("halt\n");
 	sched_halt();
 }
 
@@ -94,8 +95,7 @@ sched_halt(void)
 		"movl %0, %%esp\n"
 		"pushl $0\n"
 		"pushl $0\n"
-		// Uncomment the following line after completing exercise 13
-		//"sti\n"
+		"sti\n"
 		"1:\n"
 		"hlt\n"
 		"jmp 1b\n"
