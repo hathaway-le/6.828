@@ -57,6 +57,7 @@ __spin_initlock(struct spinlock *lk, char *name)
 // Loops (spins) until the lock is acquired.
 // Holding a lock for a long time may cause
 // other CPUs to waste time spinning to acquire it.
+// xv6的自旋锁，把对中断的操作也整合了进去
 void
 spin_lock(struct spinlock *lk)
 {

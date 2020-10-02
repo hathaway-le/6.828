@@ -77,7 +77,7 @@ trap_init(void)
 	//必须设置为U32数组，倒不一定非要是二维数组，因为一个是函数指针，一个是常数，所以不必为指针，不能设置为数组指针
 	size_t i;
 	size_t sig;
-	for(i = 0; i < 40; ++i)
+	for(i = 0; i < 40; ++i)//<= ?
 	{
 		sig = *(entryPointOfTraps+2*i+1);
 		SETGATE(idt[sig], 0, GD_KT, *(entryPointOfTraps+2*i), 0);
@@ -226,6 +226,17 @@ trap_dispatch(struct Trapframe *tf)
 
 	// Handle keyboard and serial interrupts.
 	// LAB 5: Your code here.
+	if(tf->tf_trapno == (IRQ_OFFSET + IRQ_KBD)){
+		lapic_eoi();
+ 		kbd_intr();
+ 		return;
+	}
+
+	if(tf->tf_trapno == (IRQ_OFFSET + IRQ_SERIAL)){
+		lapic_eoi();
+		serial_intr();
+		return;
+	}
 
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
@@ -256,8 +267,10 @@ trap(struct Trapframe *tf)
 	// Check that interrupts are disabled.  If this assertion
 	// fails, DO NOT be tempted to fix it by inserting a "cli" in
 	// the interrupt path.
-	assert(!(read_eflags() & FL_IF));//都当作中断door
-
+	assert(!(read_eflags() & FL_IF));
+	//bit9若为1，即响应可屏蔽中断，则触发断言，看来处理器会对用外部中断做disable处理，具体来说，idt表里面，中断门会改IF关中断，陷阱门不会
+	//jos初始化的时候，都配置成了中断门
+	//用户异常栈可以再次page fault，但此时实际上已经是在用户空间了
 	if ((tf->tf_cs & 3) == 3) {
 		// Trapped from user mode.
 		// Acquire the big kernel lock before doing any

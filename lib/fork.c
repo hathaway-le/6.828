@@ -58,6 +58,7 @@ pgfault(struct UTrapframe *utf)
 	{
 		panic("pgfault: sys_page_unmap fail\n");
 	}
+	//触发page fault的进程，此后就在正常的可写块上run了，没有触发的还是在PTE_COW上跑，最后一个触发的进程，还是在新分配的块上run，但是旧的块，会在sys_page_unmap中的page_remove里面，被回收
 }
 
 //
@@ -78,7 +79,12 @@ duppage(envid_t envid, unsigned pn)
 
 	uintptr_t pn_va = pn * PGSIZE;
 
-	if((uvpt[pn] & PTE_W) || (uvpt[pn] & PTE_COW)){
+	if(uvpt[pn] & PTE_SHARE){
+		if((r = sys_page_map(0, (void *)pn_va, envid, (void *)pn_va,(uvpt[pn] & PTE_SYSCALL))) < 0){
+			panic("sys_page_map fail\n");
+		}
+	}
+	else if((uvpt[pn] & PTE_W) || (uvpt[pn] & PTE_COW)){
 		if((r = sys_page_map(0, (void *)pn_va, envid, (void *)pn_va, (PTE_COW | PTE_P | PTE_U))) < 0){
 			panic("sys_page_map fail\n");
 		}
@@ -129,7 +135,7 @@ fork(void)
 		thisenv = &envs[ENVX(sys_getenvid())];//这个是用户空间定义的变量, 在ipc的时候用到
 		return 0;
 	}
-	for(pageVa = UTEXT; pageVa < USTACKTOP; pageVa += PGSIZE){
+	for(pageVa = UTEXT; pageVa < USTACKTOP; pageVa += PGSIZE){//fork的时候，不会复制内核空间的页表
 		// check permissions.
 		pn = PGNUM(pageVa);
 		//cprintf("uvpd[PDX(pageVa)]: %x  uvpt[pn]:  %x\n",uvpd[PDX(pageVa)],uvpt[pn]);

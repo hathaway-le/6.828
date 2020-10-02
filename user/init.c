@@ -59,7 +59,7 @@ umain(int argc, char **argv)
 		panic("dup: %e", r);
 	while (1) {
 		cprintf("init: starting sh\n");
-		r = spawnl("/sh", "sh", (char*)0);
+		r = spawnl("/sh", "sh", (char*)0);//console是PTE_SHARE的
 		if (r < 0) {
 			cprintf("init: spawn sh: %e\n", r);
 			continue;

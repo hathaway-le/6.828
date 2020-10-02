@@ -114,9 +114,9 @@ opendisk(const char *name)
 	super->s_root.f_type = FTYPE_DIR;
 	strcpy(super->s_root.f_name, "/");
 
-	nbitblocks = (nblocks + BLKBITSIZE - 1) / BLKBITSIZE;
+	nbitblocks = (nblocks + BLKBITSIZE - 1) / BLKBITSIZE;//每8*4096加1，从0算，jos是1024,只需要一个block作为bitmap
 	bitmap = alloc(nbitblocks * BLKSIZE);
-	memset(bitmap, 0xFF, nbitblocks * BLKSIZE);
+	memset(bitmap, 0xFF, nbitblocks * BLKSIZE);//1 marks free
 }
 
 void

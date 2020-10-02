@@ -99,7 +99,7 @@ spawn(const char *prog, const char **argv)
 	}
 
 	// Create new child environment
-	if ((r = sys_exofork()) < 0)
+	if ((r = sys_exofork()) < 0)//并不是fork，只复制了上下文和内核空间页表，没有复制用户空间页表
 		return r;
 	child = r;
 
@@ -160,11 +160,11 @@ spawnl(const char *prog, const char *arg0, ...)
 	while(va_arg(vl, void *) != NULL)
 		argc++;
 	va_end(vl);
-
+//	cprintf("argc: %d\n",argc);//1即0,2即1
 	// Now that we have the size of the args, do a second pass
 	// and store the values in a VLA, which has the format of argv
 	const char *argv[argc+2];
-	argv[0] = arg0;
+	argv[0] = arg0;//一般是程序名
 	argv[argc+1] = NULL;
 
 	va_start(vl, arg0);
@@ -302,6 +302,18 @@ static int
 copy_shared_pages(envid_t child)
 {
 	// LAB 5: Your code here.
+	uintptr_t pageVa;
+	unsigned pn;
+	int r;
+
+	for(pageVa = UTEXT; pageVa < USTACKTOP; pageVa += PGSIZE){
+		pn = PGNUM(pageVa);
+		if((uvpd[PDX(pageVa)] & PTE_P) && (uvpt[pn] & PTE_P) && (uvpt[pn] & PTE_U) && (uvpt[pn] & PTE_SHARE)){
+			if((r = sys_page_map(0, (void *)pageVa, child, (void *)pageVa,(uvpt[pn] & PTE_SYSCALL))) < 0){
+				return r;
+			}
+		}
+	}	
 	return 0;
 }
 

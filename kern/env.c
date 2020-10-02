@@ -194,7 +194,7 @@ env_setup_vm(struct Env *e)
 
 	// LAB 3: Your code here.
 	e->env_pgdir = (pde_t *)page2kva(p);//每个进程一张页表
-	memcpy(e->env_pgdir,kern_pgdir,PGSIZE);
+	memcpy(e->env_pgdir,kern_pgdir,PGSIZE);//进程保留内核的页表，这样trap后，不用切换页表，即可继续执行程序，ts_ss0为GD_KD，dpl为0，ltr赋值的时候，tss描述符dpl field为0
 	p->pp_ref++;//一般情况下，存在用户空间的映射才需要引用计数，但用户一级页表和所有二级页表是个例外
 	//alloc没有动ref，kern_pgdir没有动ref，因为他在core map初始化之前申请，之后申请的二级页表也需要动ref，此处进程的一级页表也需要动ref
 	// UVPT maps the env's own page table read-only.
@@ -408,10 +408,13 @@ env_create(uint8_t *binary, enum EnvType type)
 	if((rc = env_alloc(&e,0))!=0)
 		panic("env_alloc: %e\n", rc);
 	e->env_type = type;//第一次调用时，e就是envs[0],不用赋值给curenv？
+    // If this is the file server (type == ENV_TYPE_FS) give it I/O privileges.
+    // LAB 5: Your code here.
+	if(type == ENV_TYPE_FS)
+	{
+		e->env_tf.tf_eflags |= FL_IOPL_3;
+	}
 	load_icode(e,binary);
-        // If this is the file server (type == ENV_TYPE_FS) give it I/O privileges.
-        // LAB 5: Your code here.
-
 }
 
 //

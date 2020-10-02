@@ -73,7 +73,7 @@ openfile_alloc(struct OpenFile **o)
 			if ((r = sys_page_alloc(0, opentab[i].o_fd, PTE_P|PTE_U|PTE_W)) < 0)
 				return r;
 			/* fall through */
-		case 1:
+		case 1://上面没有break,如果客户端close了，物理页ref也会边成1,这样下次open的时候，就直接拿来用，不用检索
 			opentab[i].o_fileid += MAXOPEN;
 			*o = &opentab[i];
 			memset(opentab[i].o_fd, 0, PGSIZE);
@@ -209,12 +209,22 @@ serve_read(envid_t envid, union Fsipc *ipc)
 {
 	struct Fsreq_read *req = &ipc->read;
 	struct Fsret_read *ret = &ipc->readRet;
+	struct OpenFile *o;
+	int r;
 
 	if (debug)
 		cprintf("serve_read %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
 
 	// Lab 5: Your code here:
-	return 0;
+	if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+		return r;
+
+	r = file_read(o->o_file, ret->ret_buf, req->req_n, o->o_fd->fd_offset);
+	if(r > 0)
+	{
+		o->o_fd->fd_offset += r;
+	}
+	return r;
 }
 
 
@@ -222,14 +232,26 @@ serve_read(envid_t envid, union Fsipc *ipc)
 // the current seek position, and update the seek position
 // accordingly.  Extend the file if necessary.  Returns the number of
 // bytes written, or < 0 on error.
+// servr暂时不考虑size的问题，JOS这边是client考虑，反正IPC也不安全
 int
 serve_write(envid_t envid, struct Fsreq_write *req)
 {
+	struct OpenFile *o;
+	int r;
+
 	if (debug)
 		cprintf("serve_write %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
 
 	// LAB 5: Your code here.
-	panic("serve_write not implemented");
+	if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+		return r;
+	
+	r = file_write(o->o_file, req->req_buf, req->req_n, o->o_fd->fd_offset);
+	if(r > 0)
+	{
+		o->o_fd->fd_offset += r;
+	}
+	return r;
 }
 
 // Stat ipc->stat.req_fileid.  Return the file's struct Stat to the
@@ -286,7 +308,7 @@ fshandler handlers[] = {
 	[FSREQ_READ] =		serve_read,
 	[FSREQ_STAT] =		serve_stat,
 	[FSREQ_FLUSH] =		(fshandler)serve_flush,
-	[FSREQ_WRITE] =		(fshandler)serve_write,
+	[FSREQ_WRITE] =		(fshandler)serve_write,//第二参数不一样
 	[FSREQ_SET_SIZE] =	(fshandler)serve_set_size,
 	[FSREQ_SYNC] =		serve_sync
 };
@@ -330,7 +352,7 @@ void
 umain(int argc, char **argv)
 {
 	static_assert(sizeof(struct File) == 256);
-	binaryname = "fs";
+	binaryname = "fs";//dir_obj fs_fs 和这个name无关
 	cprintf("FS is running\n");
 
 	// Check that we are able to do I/O
@@ -339,7 +361,7 @@ umain(int argc, char **argv)
 
 	serve_init();
 	fs_init();
-        fs_test();
+    fs_test();
 	serve();
 }
 
