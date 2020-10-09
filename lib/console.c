@@ -83,7 +83,7 @@ devcons_read(struct Fd *fd, void *vbuf, size_t n)
 	if (n == 0)
 		return 0;
 
-	while ((c = sys_cgetc()) == 0)
+	while ((c = sys_cgetc()) == 0)//尽管sys_cgetc里面调用的console kernel不会阻塞，但是用户层会让出控制权
 		sys_yield();
 	if (c < 0)
 		return c;

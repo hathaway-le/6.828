@@ -32,7 +32,7 @@
 .text
 .globl _pgfault_upcall
 _pgfault_upcall:
-	// Call the C page fault handler.
+	// Call the C page fault handler. 此时已经从内核空间回来了
 	pushl %esp			// function argument: pointer to UTF
 	movl _pgfault_handler, %eax
 	call *%eax
@@ -65,18 +65,30 @@ _pgfault_upcall:
 	// ways as registers become unavailable as scratch space.
 	//
 	// LAB 4: Your code here.
+	movl 0x28(%esp), %eax   
+	subl $4, 0x30(%esp)     
+	movl 0x30(%esp), %edx   
+	movl %eax, (%edx)
 
 	// Restore the trap-time registers.  After you do this, you
 	// can no longer modify any general-purpose registers.
 	// LAB 4: Your code here.
+	addl $0x8, %esp         
+	popal
 
 	// Restore eflags from the stack.  After you do this, you can
 	// no longer use arithmetic operations or anything else that
 	// modifies eflags.
 	// LAB 4: Your code here.
+	addl $0x4, %esp         
+	popfl
 
 	// Switch back to the adjusted trap-time stack.
 	// LAB 4: Your code here.
+	popl %esp 
 
-	// Return to re-execute the instruction that faulted.
+	// Return to re-execute the instruction that faulted. 
+	// 相比于直接iret，CS寄存器在返回用户空间的时候已经恢复了
+	// ret把栈顶的数弹到eip寄存器，ebp是编译器编译的时候显式地调用pop %ebp
 	// LAB 4: Your code here.
+	ret

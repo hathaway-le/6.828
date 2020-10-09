@@ -60,9 +60,14 @@ alloc_block(void)
 	// The bitmap consists of one or more blocks.  A single bitmap block
 	// contains the in-use bits for BLKBITSIZE blocks.  There are
 	// super->s_nblocks blocks in the disk altogether.
-
 	// LAB 5: Your code here.
-	panic("alloc_block not implemented");
+	uint32_t i;
+	for(i = 0; i < super->s_nblocks; ++i){
+		if(block_is_free(i)){
+			bitmap[i / 32] &= ~(1 << (i % 32));
+			return i;
+		}
+	}
 	return -E_NO_DISK;
 }
 
@@ -76,7 +81,7 @@ check_bitmap(void)
 	uint32_t i;
 
 	// Make sure all bitmap blocks are marked in-use
-	for (i = 0; i * BLKBITSIZE < super->s_nblocks; i++)
+	for (i = 0; i * BLKBITSIZE < super->s_nblocks; i++)//i仅为0，循环一次
 		assert(!block_is_free(2+i));
 
 	// Make sure the reserved and root blocks are marked in-use.
@@ -134,8 +139,46 @@ fs_init(void)
 static int
 file_block_walk(struct File *f, uint32_t filebno, uint32_t **ppdiskbno, bool alloc)
 {
-       // LAB 5: Your code here.
-       panic("file_block_walk not implemented");
+    // LAB 5: Your code here.
+	// 不管f_size,从0开始
+	int allo_b;
+	if(filebno >= NDIRECT + NINDIRECT)
+	{
+		return -E_INVAL;
+	}
+	else if(filebno < NDIRECT)
+	{
+		*ppdiskbno = f->f_direct + filebno;//返回的是地址，解析这个地址，才能得到block号
+		return 0;
+	}
+	else
+	{
+		if(f->f_indirect == 0)
+		{
+			if(!alloc)
+			{
+				return -E_NOT_FOUND;
+			}
+			else
+			{
+				allo_b = alloc_block();
+				if(allo_b < 0)
+				{
+					return -E_NO_DISK;
+				}
+				else
+				{
+					f->f_indirect = allo_b;
+					memset(diskaddr(f->f_indirect), 0, BLKSIZE);
+					//fsformat的finishfile并没有对disk里面file的f_direct以及f_indirect未使用部分清0
+					flush_block(diskaddr(f->f_indirect));
+				}
+			}
+		}
+
+		*ppdiskbno = ((uint32_t *)diskaddr(f->f_indirect))+ (filebno - NDIRECT);
+		return 0;
+	}
 }
 
 // Set *blk to the address in memory where the filebno'th
@@ -149,8 +192,25 @@ file_block_walk(struct File *f, uint32_t filebno, uint32_t **ppdiskbno, bool all
 int
 file_get_block(struct File *f, uint32_t filebno, char **blk)
 {
-       // LAB 5: Your code here.
-       panic("file_get_block not implemented");
+    // LAB 5: Your code here.
+ 	int rc;
+	uint32_t *p = NULL;
+	rc = file_block_walk(f,filebno,&p,1);
+	if(rc != 0)
+	{
+		return rc;
+	}
+	if(*p == 0)
+	{
+		rc = alloc_block();
+		if(rc < 0)
+		{
+			return rc;
+		}
+		*p = rc;
+	}
+	*blk =(char *)diskaddr(*p);
+	return 0;
 }
 
 // Try to find a file named "name" in dir.  If so, set *file to it.
@@ -170,7 +230,7 @@ dir_lookup(struct File *dir, const char *name, struct File **file)
 	// is always a multiple of the file system's block size.
 	assert((dir->f_size % BLKSIZE) == 0);
 	nblock = dir->f_size / BLKSIZE;
-	for (i = 0; i < nblock; i++) {
+	for (i = 0; i < nblock; i++) {//目录下文件信息全部存在dir这个文件里面，顺序查找，复杂度n
 		if ((r = file_get_block(dir, i, &blk)) < 0)
 			return r;
 		f = (struct File*) blk;
@@ -257,7 +317,7 @@ walk_path(const char *path, struct File **pdir, struct File **pf, char *lastelem
 		name[path - p] = '\0';
 		path = skip_slash(path);
 
-		if (dir->f_type != FTYPE_DIR)
+		if (dir->f_type != FTYPE_DIR)//fsformat下只有根目录是这个type
 			return -E_NOT_FOUND;
 
 		if ((r = dir_lookup(dir, name, &f)) < 0) {
@@ -325,7 +385,7 @@ file_read(struct File *f, void *buf, size_t count, off_t offset)
 	if (offset >= f->f_size)
 		return 0;
 
-	count = MIN(count, f->f_size - offset);
+	count = MIN(count, f->f_size - offset);//f_size至少PGSIZE
 
 	for (pos = offset; pos < offset + count; ) {
 		if ((r = file_get_block(f, pos / BLKSIZE, &blk)) < 0)

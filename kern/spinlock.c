@@ -57,6 +57,7 @@ __spin_initlock(struct spinlock *lk, char *name)
 // Loops (spins) until the lock is acquired.
 // Holding a lock for a long time may cause
 // other CPUs to waste time spinning to acquire it.
+// xv6的自旋锁，把对中断的操作也整合了进去
 void
 spin_lock(struct spinlock *lk)
 {
@@ -64,7 +65,7 @@ spin_lock(struct spinlock *lk)
 	if (holding(lk))
 		panic("CPU %d cannot acquire %s: already holding", cpunum(), lk->name);
 #endif
-
+//	cprintf("CPU %d lock\n",cpunum());
 	// The xchg is atomic.
 	// It also serializes, so that reads after acquire are not
 	// reordered before it. 
@@ -106,6 +107,7 @@ spin_unlock(struct spinlock *lk)
 	lk->pcs[0] = 0;
 	lk->cpu = 0;
 #endif
+//	cprintf("CPU %d unlock\n",cpunum());
 
 	// The xchg instruction is atomic (i.e. uses the "lock" prefix) with
 	// respect to any other instruction which references the same memory.

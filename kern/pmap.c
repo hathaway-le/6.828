@@ -51,11 +51,9 @@ i386_detect_memory(void)
 	else
 		totalmem = basemem;
 
-	npages = totalmem / (PGSIZE / 1024);
+	npages = totalmem / (PGSIZE / 1024);//32768
 	npages_basemem = basemem / (PGSIZE / 1024);
-
-	cprintf("Physical memory: %uK available, base = %uK, extended = %uK\n",
-		totalmem, basemem, totalmem - basemem);
+	cprintf("Physical memory: %uK available, base = %uK, extended = %uK\n",totalmem, basemem, totalmem - basemem);//Total 128M
 }
 
 
@@ -99,7 +97,8 @@ boot_alloc(uint32_t n)
 	// to any kernel code or global variables.
 	if (!nextfree) {
 		extern char end[];
-		nextfree = ROUNDUP((char *) end, PGSIZE);
+		nextfree = ROUNDUP((char *) end, PGSIZE);//向上4K对齐
+		cprintf("first nextfree: 0x%x\n",nextfree);
 	}
 
 	// Allocate a chunk large enough to hold 'n' bytes, then update
@@ -107,8 +106,15 @@ boot_alloc(uint32_t n)
 	// to a multiple of PGSIZE.
 	//
 	// LAB 2: Your code here.
+	if(n == 0)
+		return nextfree;
+	result = nextfree;
+	nextfree = ROUNDUP((nextfree + n),PGSIZE);//申请n/4 × 32bit空间
 
-	return NULL;
+	//if((uint32_t)nextfree > KERNBASE + npages * PGSIZE)//不能超出128M
+	if((uint32_t)nextfree > 0xF0400000)	//其实超过第一个4M就没有意义了,此时还是用的boot时期定义的页表
+		panic("Out of memory\n");
+	return result;
 }
 
 // Set up a two-level page table:
@@ -129,12 +135,9 @@ mem_init(void)
 	// Find out how much memory the machine has (npages & npages_basemem).
 	i386_detect_memory();
 
-	// Remove this line when you're ready to test this function.
-	panic("mem_init: This function is not finished\n");
-
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
-	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);
+	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);//1024项，每项32bit 4KB
 	memset(kern_pgdir, 0, PGSIZE);
 
 	//////////////////////////////////////////////////////////////////////
@@ -145,6 +148,13 @@ mem_init(void)
 
 	// Permissions: kernel R, user R
 	kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;
+	//the virtual address of the UVPD is (0x3BD<<22)|(0x3BD<<12)
+	//.set uvpd, (UVPT+(UVPT>>12)*4)
+	//用户空间访问uvpd，这才是env_pgdir
+	//和boot_map_region直接赋虚拟地址不一样，这个是这个是二次求和计算出来的（对于env_pgdir就像是二次递归，这个二是和硬件页表层数相关的,到了搜索页内偏移量的时候，后12位是0,所以指向env_pgdir首部）
+	//u32 uvpt[PGNUM(pageVa)] 相当于UVPT+(pageVa>>12)*4，右移12位先把原来用于搜索页内偏移量的数清0,先第一次页表计算，0x3BD<<22，找到一级页表，然后硬件计算UVPT+(pageVa>>12)*4的中间10位，即pageVa的前10位，得到二级页表地址，即env_pgdir[PDX(pageVa)]，最后通过计算后12位offset（10×32bit，从地址上看，和前面2个10位寻找页表项一样），找到pageVa二级页表项
+	//kern_pgdir虚拟地址在之前分配的4M内才能直接减去KERNBASE来计算物理地址,这个第一级页表在0xef400000-0xef800000项指向了一级页表的物理地址
+	//可以通过该区间内的虚拟地址访问一级页表，都是1024项
 
 	//////////////////////////////////////////////////////////////////////
 	// Allocate an array of npages 'struct PageInfo's and store it in 'pages'.
@@ -153,19 +163,21 @@ mem_init(void)
 	// array.  'npages' is the number of physical pages in memory.  Use memset
 	// to initialize all fields of each struct PageInfo to 0.
 	// Your code goes here:
-
+	pages = (struct PageInfo *) boot_alloc(npages * sizeof(struct PageInfo));//256KB 0x40000
+	memset(pages,0,npages * sizeof(struct PageInfo));
 
 	//////////////////////////////////////////////////////////////////////
 	// Make 'envs' point to an array of size 'NENV' of 'struct Env'.
 	// LAB 3: Your code here.
-
+	envs = (struct Env *) boot_alloc(NENV * sizeof(struct Env));//96KB
+	memset(envs,0,NENV * sizeof(struct Env));
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
 	// up the list of free physical pages. Once we've done so, all further
 	// memory management will go through the page_* functions. In
 	// particular, we can now map memory using boot_map_region
 	// or page_insert
-	page_init();
+	page_init();//boot_alloc不再使用，之前分配的物理内存未在pages初始化的时候记录，ref都是0
 
 	check_page_free_list(1);
 	check_page_alloc();
@@ -182,6 +194,9 @@ mem_init(void)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
 
+	boot_map_region(kern_pgdir,UPAGES,ROUNDUP(npages * sizeof(struct PageInfo),PGSIZE),PADDR(pages),(PTE_U | PTE_P));
+	//size 256K,直接用PTSIZE不大好，把UPAGES全部用满的话可以在支持2G物理内存，即4M core map
+	
 	//////////////////////////////////////////////////////////////////////
 	// Map the 'envs' array read-only by the user at linear address UENVS
 	// (ie. perm = PTE_U | PTE_P).
@@ -189,7 +204,9 @@ mem_init(void)
 	//    - the new image at UENVS  -- kernel R, user R
 	//    - envs itself -- kernel RW, user NONE
 	// LAB 3: Your code here.
-
+	boot_map_region(kern_pgdir,UENVS,ROUNDUP(NENV * sizeof(struct Env),PGSIZE),PADDR(envs),(PTE_U | PTE_P));
+	//用这个虚拟地址访问，才是kernel R, user R，但是envs是boot_alloc的，kernel WR，pages和kern_pgdir同理
+	//他们在boot的时候，权限就被设定了，0-4M
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
 	// stack.  The kernel stack grows down from virtual address KSTACKTOP.
@@ -201,7 +218,7 @@ mem_init(void)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
-
+	// boot_map_region(kern_pgdir,KSTACKTOP-KSTKSIZE,KSTKSIZE,PADDR(bootstack),(PTE_W | PTE_P));//32K   0x110000
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
 	// Ie.  the VA range [KERNBASE, 2^32) should map to
@@ -210,10 +227,11 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
+	boot_map_region(kern_pgdir,KERNBASE,-KERNBASE,0,(PTE_W | PTE_P));//实际上就映射了256M（32位虚拟地址为界），但物理内存就128M
 
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
-
+	
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
 
@@ -261,7 +279,11 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
-
+	// bootstack就不用了
+	for(int i = 0;i < NCPU ; i++)
+	{
+		boot_map_region(kern_pgdir,KSTACKTOP - i * (KSTKSIZE + KSTKGAP) - KSTKSIZE,KSTKSIZE,PADDR(percpu_kstacks[i]),(PTE_W | PTE_P));
+	}
 }
 
 // --------------------------------------------------------------
@@ -300,12 +322,35 @@ page_init(void)
 	// Change the code to reflect this.
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
-	size_t i;
-	for (i = 0; i < npages; i++) {
+	pages[0].pp_ref = 0;
+	pages[0].pp_link = NULL;
+	//[0,PGSIZE)
+	size_t i,npages_coremap_end;
+	for (i = 1; i < PGNUM(MPENTRY_PADDR); i++) {
+			pages[i].pp_ref = 0;
+			pages[i].pp_link = page_free_list;
+			page_free_list = &pages[i];
+	}
+	pages[i++].pp_ref = 0;
+	pages[i++].pp_link = NULL;
+	for (; i < npages_basemem; i++) {
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
 		page_free_list = &pages[i];
 	}
+	//[0x7000,0x000A0000)
+	npages_coremap_end = ((uint32_t)boot_alloc(0)-KERNBASE)/PGSIZE;
+	for(i = npages_basemem; i < npages_coremap_end; i++)
+	{
+		pages[i].pp_ref = 0;
+		pages[i].pp_link = NULL;
+	}
+	//[0x000A0000,coremap_end)
+	for (i = npages_coremap_end; i < npages; i++) {
+		pages[i].pp_ref = 0;
+		pages[i].pp_link = page_free_list;
+		page_free_list = &pages[i];
+	}//[coremap_end,end)从最后一个空闲page开始分配
 }
 
 //
@@ -323,8 +368,24 @@ page_init(void)
 struct PageInfo *
 page_alloc(int alloc_flags)
 {
-	// Fill this function in
-	return 0;
+	struct PageInfo * result;
+	size_t location;
+	if(page_free_list != NULL)
+	{
+		result = page_free_list;
+		page_free_list = page_free_list->pp_link;
+		result->pp_link = NULL;
+		if(alloc_flags & ALLOC_ZERO)
+		{
+			location = result - pages;//地址相减会除以sizeof(struct PageInfo *)
+			memset((void *)(location * PGSIZE + KERNBASE),'\0',PGSIZE);//exercise1只能映射4M内
+		}
+		return result;
+	}
+	else
+	{
+		return NULL;
+	}
 }
 
 //
@@ -337,6 +398,22 @@ page_free(struct PageInfo *pp)
 	// Fill this function in
 	// Hint: You may want to panic if pp->pp_ref is nonzero or
 	// pp->pp_link is not NULL.
+	if(pp == NULL)
+	{
+		cprintf("page_free: pp is NULL\n");
+	}
+	else
+	{
+		if(pp->pp_ref != 0 || pp->pp_link != NULL)
+		{
+			panic("page free error\n");
+		}
+		else
+		{
+			pp->pp_link = page_free_list;
+			page_free_list = pp;
+		}	
+	}
 }
 
 //
@@ -346,8 +423,15 @@ page_free(struct PageInfo *pp)
 void
 page_decref(struct PageInfo* pp)
 {
-	if (--pp->pp_ref == 0)
+	if(pp == NULL)
+	{
+		cprintf("page_decref: pp is NULL");
+	}
+	else
+	{
+		if (--pp->pp_ref == 0)
 		page_free(pp);
+	}
 }
 
 // Given 'pgdir', a pointer to a page directory, pgdir_walk returns
@@ -376,7 +460,34 @@ pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
 	// Fill this function in
-	return NULL;
+	size_t pdx = PDX(va);
+	size_t ptx = PTX(va);
+	struct PageInfo* allo;
+
+	if(pgdir == NULL)
+	{
+		return NULL;
+	}
+	else
+	{
+		if(pgdir[pdx] && PTE_P)//二级页表在主存中，而非4KB页框
+		{
+			return (pte_t*)(KADDR(PTE_ADDR(pgdir[pdx]))) + ptx;//返回二级页表的某一项的地址，这一项未必指向某个4K页框，即P不一定为1
+		}
+		else
+		{
+			if(create && (allo = page_alloc(ALLOC_ZERO)))
+			{
+				allo->pp_ref++;
+				pgdir[pdx] = page2pa(allo) | PTE_P | PTE_W | PTE_U;//分配了一张二级页表
+				return (pte_t*)(KADDR(PTE_ADDR(pgdir[pdx]))) + ptx;
+			}
+			else
+			{
+				return NULL;
+			}
+		}
+	}
 }
 
 //
@@ -394,6 +505,17 @@ static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
 	// Fill this function in
+	
+	pte_t * pte;
+	size_t i;
+	size_t count = size/PGSIZE;
+	for(i = 0; i < count; i++)
+	{
+		pte = pgdir_walk(pgdir,(void *)(va + i*PGSIZE),1);
+		if(pte == NULL)
+			panic("boot_map_region: pgdir_walk fail.\n");
+		*pte = (pa + i*PGSIZE) | perm | PTE_P;
+	}
 }
 
 //
@@ -425,6 +547,33 @@ int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	// Fill this function in
+	pte_t * pte;
+	pte_t * pte_store;
+	struct PageInfo * page_found;
+
+	pte = pgdir_walk(pgdir,va,1);
+	if (pte == NULL)
+	{
+		return -E_NO_MEM;
+	}
+	else
+	{
+		if(*pte & PTE_P)//P何时何处会被清0，如何置换？
+		{
+			if(page2pa(pp) == PTE_ADDR(*pte))
+			{
+				*pte = page2pa(pp) | perm | PTE_P;
+				return 0;
+			}
+			else
+			{
+				page_remove(pgdir,va);			
+			}
+		}
+	}
+	
+	*pte = page2pa(pp) | perm | PTE_P;
+	pp->pp_ref++;
 	return 0;
 }
 
@@ -443,7 +592,14 @@ struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
 	// Fill this function in
-	return NULL;
+	pte_t * pte = pgdir_walk(pgdir,va,0);
+	if(pte == NULL)
+		return NULL;
+	if(!(*pte & PTE_P))
+		return NULL;
+	if(pte_store !=NULL)
+		*pte_store = pte;
+	return pa2page(*pte);//*pte指向页框基地址+权限，pa2page自带右移	
 }
 
 //
@@ -465,6 +621,15 @@ void
 page_remove(pde_t *pgdir, void *va)
 {
 	// Fill this function in
+	pte_t *pte_store;
+	struct PageInfo * page_found;
+	page_found = page_lookup(pgdir,va,&pte_store);
+	if(page_found != NULL)
+	{
+		*pte_store = 0;//P清0
+		page_decref(page_found);
+		tlb_invalidate(pgdir,va);
+	}
 }
 
 //
@@ -511,7 +676,14 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	physaddr_t start_pa = ROUNDDOWN(pa,PGSIZE);
+	physaddr_t end_pa = ROUNDUP(pa+size,PGSIZE);
+	size_t len = end_pa-start_pa;
+	if(len > (MMIOLIM - base))
+		panic("overflow MMIOLIM!\n");
+	boot_map_region(kern_pgdir,base,len,start_pa,(PTE_PCD|PTE_PWT|PTE_W));
+	base += len;
+	return (void *)(base - len);
 }
 
 static uintptr_t user_mem_check_addr;
@@ -538,7 +710,22 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
-
+	pte_t * pte;
+	uintptr_t startVa = ROUNDDOWN((uintptr_t)va, PGSIZE), endVa = ROUNDUP((uintptr_t)(va + len), PGSIZE);
+	for(; startVa < endVa; startVa += PGSIZE)
+	{
+		if(startVa >= ULIM)
+		{
+			user_mem_check_addr = (startVa < (uintptr_t)va?(uintptr_t)va:startVa);
+			return -E_FAULT;
+		}
+		pte = pgdir_walk(env->env_pgdir,(void *)startVa,0);
+		if ( (pte == NULL) || ((*pte & (perm | PTE_P))!=(perm | PTE_P)))
+		{
+			user_mem_check_addr = (startVa < (uintptr_t)va?(uintptr_t)va:startVa);
+			return -E_FAULT;
+		}
+	}
 	return 0;
 }
 
@@ -577,7 +764,7 @@ check_page_free_list(bool only_low_memory)
 
 	if (!page_free_list)
 		panic("'page_free_list' is a null pointer!");
-
+	//cprintf("origin size %u\n",page_free_list-pages);//32767
 	if (only_low_memory) {
 		// Move pages with lower addresses first in the free
 		// list, since entry_pgdir does not map all pages.
@@ -592,7 +779,7 @@ check_page_free_list(bool only_low_memory)
 		*tp[0] = pp2;
 		page_free_list = pp1;
 	}
-
+	//cprintf("check size %u\n",page_free_list-pages);//1023
 	// if there's a page that shouldn't be on the free list,
 	// try to make sure it eventually causes trouble.
 	for (pp = page_free_list; pp; pp = pp->pp_link)
@@ -684,6 +871,7 @@ check_page_alloc(void)
 	memset(page2kva(pp0), 1, PGSIZE);
 	page_free(pp0);
 	assert((pp = page_alloc(ALLOC_ZERO)));
+	//cprintf("pp %u\n",(pp - pages));1021,未超过4M
 	assert(pp && pp0 == pp);
 	c = page2kva(pp);
 	for (i = 0; i < PGSIZE; i++)

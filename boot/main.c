@@ -118,7 +118,7 @@ readsect(void *dst, uint32_t offset)
 	outb(0x1F3, offset);
 	outb(0x1F4, offset >> 8);
 	outb(0x1F5, offset >> 16);
-	outb(0x1F6, (offset >> 24) | 0xE0);
+	outb(0x1F6, (offset >> 24) | 0xE0);//disk 0
 	outb(0x1F7, 0x20);	// cmd 0x20 - read sectors
 
 	// wait for disk to be ready

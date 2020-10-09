@@ -52,7 +52,7 @@ struct Dev devfile =
 // 	-E_BAD_PATH if the path is too long (>= MAXPATHLEN)
 // 	< 0 for other errors.
 int
-open(const char *path, int mode)
+open(const char *path, int mode)//为了使用fsipc，把这个函数和设备相关的函数放在了一个文件里
 {
 	// Find an unused file descriptor page using fd_alloc.
 	// Then send a file-open request to the file server.
@@ -80,7 +80,7 @@ open(const char *path, int mode)
 	strcpy(fsipcbuf.open.req_path, path);
 	fsipcbuf.open.req_omode = mode;
 
-	if ((r = fsipc(FSREQ_OPEN, fd)) < 0) {
+	if ((r = fsipc(FSREQ_OPEN, fd)) < 0) {//fd当作dstva
 		fd_close(fd, 0);
 		return r;
 	}
@@ -116,13 +116,14 @@ devfile_read(struct Fd *fd, void *buf, size_t n)
 	// bytes read will be written back to fsipcbuf by the file
 	// system server.
 	int r;
+	if(n > sizeof(fsipcbuf.readRet.ret_buf))//受buffer限制，一次最多4096B，所以需要readn
+		n = sizeof(fsipcbuf.readRet.ret_buf);
 
 	fsipcbuf.read.req_fileid = fd->fd_file.id;
 	fsipcbuf.read.req_n = n;
 	if ((r = fsipc(FSREQ_READ, NULL)) < 0)
 		return r;
 	assert(r <= n);
-	assert(r <= PGSIZE);
 	memmove(buf, fsipcbuf.readRet.ret_buf, r);
 	return r;
 }
@@ -141,7 +142,15 @@ devfile_write(struct Fd *fd, const void *buf, size_t n)
 	// remember that write is always allowed to write *fewer*
 	// bytes than requested.
 	// LAB 5: Your code here
-	panic("devfile_write not implemented");
+	int r;
+	if(n > sizeof(fsipcbuf.write.req_buf))
+		n = sizeof(fsipcbuf.write.req_buf);
+
+	fsipcbuf.write.req_fileid = fd->fd_file.id;
+	fsipcbuf.write.req_n = n;
+	memmove(fsipcbuf.write.req_buf, buf, n);
+
+	return fsipc(FSREQ_WRITE, NULL);//返回值可能比n大，见file_write，不需要assert
 }
 
 static int
