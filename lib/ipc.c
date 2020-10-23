@@ -62,7 +62,7 @@ ipc_send(envid_t to_env, uint32_t val, void *pg, int perm)
 	{
 		if(rc != -E_IPC_NOT_RECV)
 		{
-			panic("ipc_send: call sys_ipc_try_send fail\n");
+			panic("ipc_send: call sys_ipc_try_send fail %e\n",rc);
 		}
 		sys_yield();
 	}

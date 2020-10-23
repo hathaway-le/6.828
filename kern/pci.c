@@ -4,10 +4,11 @@
 #include <kern/pci.h>
 #include <kern/pcireg.h>
 #include <kern/e1000.h>
+#include <kern/pmap.h>
 
 // Flag to do "lspci" at bootup
 static int pci_show_devs = 1;
-static int pci_show_addrs = 0;
+static int pci_show_addrs = 1;
 
 // PCI "configuration mechanism one"
 static uint32_t pci_conf1_addr_ioport = 0x0cf8;
@@ -31,6 +32,7 @@ struct pci_driver pci_attach_class[] = {
 // pci_attach_vendor matches the vendor ID and device ID of a PCI device. key1
 // and key2 should be the vendor ID and device ID respectively
 struct pci_driver pci_attach_vendor[] = {
+	{ E1000_VENDOR, E1000_DEVICE, &pci_e1000_attach },
 	{ 0, 0, 0 },
 };
 
@@ -64,6 +66,12 @@ pci_conf_write(struct pci_func *f, uint32_t off, uint32_t v)
 	pci_conf1_set_addr(f->bus->busno, f->dev, f->func, off);
 	outl(pci_conf1_data_ioport, v);
 }
+
+/*
+The PCI Specification requires implementation of PCI Configuration registers(I/O). After a system
+reset, these registers are initially configured by the BIOS,
+00h-3Ch PCI
+*/
 
 static int __attribute__((warn_unused_result))
 pci_attach_match(uint32_t key1, uint32_t key2,
@@ -111,7 +119,8 @@ static const char *pci_class[] =
 static void
 pci_print_func(struct pci_func *f)
 {
-	const char *class = pci_class[0];
+	const char *class = pci_class[0];//指针是变量，指向的东西不可变，同char const * class
+	//char * const class 此时class是常量指针
 	if (PCI_CLASS(f->dev_class) < ARRAY_SIZE(pci_class))
 		class = pci_class[PCI_CLASS(f->dev_class)];
 
@@ -121,23 +130,30 @@ pci_print_func(struct pci_func *f)
 		PCI_CLASS(f->dev_class), PCI_SUBCLASS(f->dev_class), class,
 		f->irq_line);
 }
-
+/*
+PCI: 00:00.0: 8086:1237: class: 6.0 (Bridge device) irq: 0
+PCI: 00:01.0: 8086:7000: class: 6.1 (Bridge device) irq: 0
+PCI: 00:01.1: 8086:7010: class: 1.1 (Storage controller) irq: 0
+PCI: 00:01.3: 8086:7113: class: 6.80 (Bridge device) irq: 9
+PCI: 00:02.0: 1234:1111: class: 3.0 (Display controller) irq: 0
+PCI: 00:03.0: 8086:100e: class: 2.0 (Network controller) irq: 11
+*/
 static int
-pci_scan_bus(struct pci_bus *bus)
+pci_scan_bus(struct pci_bus *bus)//33M 32bit 133MB/S
 {
 	int totaldev = 0;
 	struct pci_func df;
 	memset(&df, 0, sizeof(df));
 	df.bus = bus;
 
-	for (df.dev = 0; df.dev < 32; df.dev++) {
-		uint32_t bhlc = pci_conf_read(&df, PCI_BHLC_REG);
+	for (df.dev = 0; df.dev < 32; df.dev++) {//每个bus最多32个dev,只scan bus0
+		uint32_t bhlc = pci_conf_read(&df, PCI_BHLC_REG);//refer to Mandatory PCI Registers
 		if (PCI_HDRTYPE_TYPE(bhlc) > 1)	    // Unsupported or no device
 			continue;
 
 		totaldev++;
 
-		struct pci_func f = df;
+		struct pci_func f = df;//准备遍历func,最多8个
 		for (f.func = 0; f.func < (PCI_HDRTYPE_MULTIFN(bhlc) ? 8 : 1);
 		     f.func++) {
 			struct pci_func af = f;
@@ -152,7 +168,7 @@ pci_scan_bus(struct pci_bus *bus)
 			af.dev_class = pci_conf_read(&af, PCI_CLASS_REG);
 			if (pci_show_devs)
 				pci_print_func(&af);
-			pci_attach(&af);
+			pci_attach(&af);//临时变量？？？
 		}
 	}
 
@@ -182,12 +198,34 @@ pci_bridge_attach(struct pci_func *pcif)
 			nbus.busno,
 			(busreg >> PCI_BRIDGE_BUS_SUBORDINATE_SHIFT) & 0xff);
 
-	pci_scan_bus(&nbus);
+	pci_scan_bus(&nbus);//从bus0开始深度优先遍历
 	return 1;
 }
 
 // External PCI subsystem interface
+/*
+  Since MMIO regions are assigned very high physical addresses,超了实际物理内存并没有关系，没有超过物理地址区间即可
+  lapicaddr: fee00000
 
+  非配置空间
+  mem region 0: 131072 bytes(128KB) at 0xfebc0000 size如spec73页所写
+  The size of the flash space can very between 64 KB and
+  512 KB depending on the FLASH size read from the
+  EEPROM.）
+  e1000.c
+  e1000 = mmio_map_region(pcif->reg_base[0], pcif->reg_size[0]);
+ （e1000+offset）
+
+  io region 1: 64 bytes at 0xc000（IOBASE） 
+  To support pre-boot operation (prior to the allocation of physical memory base addresses),
+  When an I/O BAR is mapped, the I/O address range allocated opens a 32-byte window in the
+  system I/O address map. Within this window, two I/O addressable registers are implemented:
+  IOADDR and IODATA（IOBASE+00000000h IOBASE+00000004h）这里只用了8个字节啊 spec上也说占用了8B的io地址空间，这个size指IOADDR的value的范围把
+  outl inl like pci_conf_write and pci_conf_read
+  不是直接使用io地址区间
+
+  PCI function 00:03.0 (8086:100e) enabled
+*/
 void
 pci_func_enable(struct pci_func *f)
 {
@@ -195,18 +233,27 @@ pci_func_enable(struct pci_func *f)
 		       PCI_COMMAND_IO_ENABLE |
 		       PCI_COMMAND_MEM_ENABLE |
 		       PCI_COMMAND_MASTER_ENABLE);
+	//pci configure region 靠io空间的cf8和cfc（addr control和data）来操作
 
 	uint32_t bar_width;
 	uint32_t bar;
 	for (bar = PCI_MAPREG_START; bar < PCI_MAPREG_END;
 	     bar += bar_width)
 	{
-		uint32_t oldv = pci_conf_read(f, bar);
-
+		uint32_t oldv = pci_conf_read(f, bar);//base，physical
 		bar_width = 4;
 		pci_conf_write(f, bar, 0xffffffff);
-		uint32_t rv = pci_conf_read(f, bar);
+/*
+BAR通过将某些位设置为只读，且0来表示需要的地址空间大小，比如一个PCI设备需要占用1MB的地址空间，那么这个BAR就需要实现高12bit是可读写的，而20-4bit是只读且位0。地址空间大小的计算方法如下：
 
+a.向BAR寄存器写全1
+
+b.读回寄存器里面的值，然后clear 上图中特殊编码的值，(IO 中bit0，bit1， memory中bit0-3)。
+
+c.对读回来的值去反，加一就得到了该设备需要占用的地址内存空间。
+*/
+
+		uint32_t rv = pci_conf_read(f, bar);//size
 		if (rv == 0)
 			continue;
 
@@ -215,7 +262,6 @@ pci_func_enable(struct pci_func *f)
 		if (PCI_MAPREG_TYPE(rv) == PCI_MAPREG_TYPE_MEM) {
 			if (PCI_MAPREG_MEM_TYPE(rv) == PCI_MAPREG_MEM_TYPE_64BIT)
 				bar_width = 8;
-
 			size = PCI_MAPREG_MEM_SIZE(rv);
 			base = PCI_MAPREG_MEM_ADDR(oldv);
 			if (pci_show_addrs)
@@ -242,9 +288,6 @@ pci_func_enable(struct pci_func *f)
 				regnum, base, size);
 	}
 
-	cprintf("PCI function %02x:%02x.%d (%04x:%04x) enabled\n",
-		f->bus->busno, f->dev, f->func,
-		PCI_VENDOR(f->dev_id), PCI_PRODUCT(f->dev_id));
 }
 
 int

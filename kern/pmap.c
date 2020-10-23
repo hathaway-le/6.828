@@ -112,7 +112,7 @@ boot_alloc(uint32_t n)
 	nextfree = ROUNDUP((nextfree + n),PGSIZE);//申请n/4 × 32bit空间
 
 	//if((uint32_t)nextfree > KERNBASE + npages * PGSIZE)//不能超出128M
-	if((uint32_t)nextfree > 0xF0400000)	//其实超过第一个4M就没有意义了,此时还是用的boot时期定义的页表
+	if((uint32_t)nextfree > 0xF0400000)	//其实超过第一个4M(bss仅占据地址空间，也算)就没有意义了,此时还是用的boot时期定义的页表
 		panic("Out of memory\n");
 	return result;
 }
@@ -681,7 +681,7 @@ mmio_map_region(physaddr_t pa, size_t size)
 	size_t len = end_pa-start_pa;
 	if(len > (MMIOLIM - base))
 		panic("overflow MMIOLIM!\n");
-	boot_map_region(kern_pgdir,base,len,start_pa,(PTE_PCD|PTE_PWT|PTE_W));
+	boot_map_region(kern_pgdir,base,len,start_pa,(PTE_PCD|PTE_PWT|PTE_W));//cache-disable and write-through!!!
 	base += len;
 	return (void *)(base - len);
 }
