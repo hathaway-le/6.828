@@ -417,6 +417,12 @@ static int sys_eth_tx(void *a1,uint32_t a2)
 	return e1000_tx((uint8_t *)a1,a2);
 }
 
+static int sys_eth_rx(void *a1,uint32_t *a2)//未模仿sys_ipc_recv
+{
+//	user_mem_assert(curenv, a1, RX_BUF_LEN, PTE_U);
+	return e1000_rx((uint8_t *)a1,a2);
+}
+
 // Dispatches to the correct kernel function, passing the arguments.
 int32_t
 syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5)
@@ -442,6 +448,7 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	case SYS_env_set_trapframe: return sys_env_set_trapframe((envid_t)a1,(struct Trapframe *)a2);
 	case SYS_time_msec: return sys_time_msec();
 	case SYS_eth_tx: return sys_eth_tx((void *)a1,a2);
+	case SYS_eth_rx: return sys_eth_rx((void *)a1,(uint32_t *)a2);
 	default:
 		return -E_INVAL;
 	}

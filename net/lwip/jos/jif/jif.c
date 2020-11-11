@@ -98,14 +98,14 @@ low_level_output(struct netif *netif, struct pbuf *p)
 
 	if (txsize + q->len > 2000)
 	    panic("oversized packet, fragment %d txsize %d\n", q->len, txsize);
-	memcpy(&txbuf[txsize], q->payload, q->len);
+	memcpy(&txbuf[txsize], q->payload, q->len);//如果直接把q->payload传到驱动层e1000 dma buffer那边，省2次copy，但是e1000的buffer就不能在内核层定义了
 	txsize += q->len;
     }
 
     pkt->jp_len = txsize;
 
     ipc_send(jif->envid, NSREQ_OUTPUT, (void *)pkt, PTE_P|PTE_W|PTE_U);
-    sys_page_unmap(0, (void *)pkt);
+    sys_page_unmap(0, (void *)pkt);//在output进程ipc_recv后才会unmap
 
     return ERR_OK;
 }

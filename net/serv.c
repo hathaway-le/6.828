@@ -250,7 +250,7 @@ serve_thread(uint32_t a) {
 		ipc_send(args->whom, r, 0, 0);
 
 	put_buffer(args->req);
-	sys_page_unmap(0, (void*) args->req);
+	sys_page_unmap(0, (void*) args->req);//unmap ipc_recv绑定的地址
 	free(args);
 }
 
@@ -267,10 +267,14 @@ serve(void) {
 		// number of yields in case there's a rogue thread.
 		for (i = 0; thread_wakeups_pending() && i < 32; ++i)
 			thread_yield();
-
+		//在main线程，优先处理被调用了thread_wakeup（signal）的thread，类似发送信号，等待被处理，毕竟tmain有定时阻塞，延缓新的服务进程和输入进程的请求处理，先处理协议栈的内容
+		//尽管会优先去检测并处理lwip阻塞线程，但是thread_yield里面毕竟是链表，线程越多越慢，应该是不如epoll这些
+		
 		perm = 0;
-		va = get_buffer();
-		reqno = ipc_recv((int32_t *) &whom, (void *) va, &perm);
+		va = get_buffer();//这个buf是给服务器进程和输入进程使用的，使得多线程serve_thread可以工作
+		reqno = ipc_recv((int32_t *) &whom, (void *) va, &perm);//buf在此分配物理地址
+		//因为有定时进程，总会解除block的，block是因为ENV_NOT_RUNNABLE，time进程不使用get_buffer，send的是0,转成了UTOP，不处理
+		//不用担心tmain被阻塞，而不能及时ipc_recv，ipc_send会不断尝试的，ipc无buffer，接受一次，某个进程发送成功一次
 		if (debug) {
 			cprintf("ns req %d from %08x\n", reqno, whom);
 		}
@@ -279,7 +283,7 @@ serve(void) {
 		if (reqno == NSREQ_TIMER) {
 			process_timer(whom);
 			put_buffer(va);
-			continue;
+			continue;//处理定时进程后，不会让出线程
 		}
 
 		// All remaining requests must contain an argument page

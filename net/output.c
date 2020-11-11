@@ -16,7 +16,8 @@ output(envid_t ns_envid)
 	while (1)
 	{
 		reqno = ipc_recv((int32_t *) &whom, (void *) &nsipcbuf, &perm);
-
+		//对于out进程，nsipcbuf映射的物理地址不再是nsipc.c里面那个变量，而是low_level_output里面分配的
+		//原来的nsipcbuf的物理地址仅用于协议栈和socket，虚拟地址用于socket
 		if(reqno != NSREQ_OUTPUT)
 		{
 			continue;

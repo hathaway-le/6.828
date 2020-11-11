@@ -5,7 +5,7 @@
 
 #define JOS_LONGJMP_GCCATTR	regparm(2)
 
-struct jos_jmp_buf {
+struct jos_jmp_buf {//eax,ecx,edx由硬件保存，参照函数调用
     uint32_t jb_eip;
     uint32_t jb_esp;
     uint32_t jb_ebp;

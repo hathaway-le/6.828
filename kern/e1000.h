@@ -15,6 +15,16 @@
 #define E1000_TDT    0x03818  /* TX Descripotr Tail - RW */
 #define E1000_TCTL   0x00400  /* TX Control - RW */
 #define E1000_TIPG   0x00410  /* TX Inter-packet gap -RW */
+#define E1000_RAL    0x05400  /* Receive Address - RW Array */
+#define E1000_RAH    0x05404  /* Receive Address - RW Array */
+#define E1000_RDBAL  0x02800  /* RX Descriptor Base Address Low - RW */
+#define E1000_RDBAH  0x02804  /* RX Descriptor Base Address High - RW */
+#define E1000_RDLEN  0x02808  /* RX Descriptor Length - RW */
+#define E1000_RCTL   0x00100  /* RX Control - RW */
+#define E1000_RDH    0x02810  /* RX Descriptor Head - RW */
+#define E1000_RDT    0x02818  /* RX Descriptor Tail - RW */
+#define E1000_ICS    0x000C8  /* Interrupt Cause Set - WO */
+#define E1000_IMS    0x000D0  /* Interrupt Mask Set - RW */
 
 /* Transmit Control */
 #define E1000_TCTL_RST    0x00000001    /* software reset */
@@ -51,7 +61,81 @@
 #define E1000_TXD_CMD_TSE    0x04000000 /* TCP Seg enable */
 #define E1000_TXD_STAT_TC    0x00000004 /* Tx Underrun */
 
+/* Receive Control */
+#define E1000_RCTL_RST            0x00000001    /* Software reset */
+#define E1000_RCTL_EN             0x00000002    /* enable */
+#define E1000_RCTL_SBP            0x00000004    /* store bad packet */
+#define E1000_RCTL_UPE            0x00000008    /* unicast promiscuous enable */
+#define E1000_RCTL_MPE            0x00000010    /* multicast promiscuous enab */
+#define E1000_RCTL_LPE            0x00000020    /* long packet enable */
+#define E1000_RCTL_LBM_NO         0x00000000    /* no loopback mode */
+#define E1000_RCTL_LBM_MAC        0x00000040    /* MAC loopback mode */
+#define E1000_RCTL_LBM_SLP        0x00000080    /* serial link loopback mode */
+#define E1000_RCTL_LBM_TCVR       0x000000C0    /* tcvr loopback mode */
+#define E1000_RCTL_DTYP_MASK      0x00000C00    /* Descriptor type mask */
+#define E1000_RCTL_DTYP_PS        0x00000400    /* Packet Split descriptor */
+#define E1000_RCTL_RDMTS_HALF     0x00000000    /* rx desc min threshold size */
+#define E1000_RCTL_RDMTS_QUAT     0x00000100    /* rx desc min threshold size */
+#define E1000_RCTL_RDMTS_EIGTH    0x00000200    /* rx desc min threshold size */
+#define E1000_RCTL_MO_SHIFT       12            /* multicast offset shift */
+#define E1000_RCTL_MO_0           0x00000000    /* multicast offset 11:0 */
+#define E1000_RCTL_MO_1           0x00001000    /* multicast offset 12:1 */
+#define E1000_RCTL_MO_2           0x00002000    /* multicast offset 13:2 */
+#define E1000_RCTL_MO_3           0x00003000    /* multicast offset 15:4 */
+#define E1000_RCTL_MDR            0x00004000    /* multicast desc ring 0 */
+#define E1000_RCTL_BAM            0x00008000    /* broadcast enable */
+/* these buffer sizes are valid if E1000_RCTL_BSEX is 0 */
+#define E1000_RCTL_SZ_2048        0x00000000    /* rx buffer size 2048 */
+#define E1000_RCTL_SZ_1024        0x00010000    /* rx buffer size 1024 */
+#define E1000_RCTL_SZ_512         0x00020000    /* rx buffer size 512 */
+#define E1000_RCTL_SZ_256         0x00030000    /* rx buffer size 256 */
+/* these buffer sizes are valid if E1000_RCTL_BSEX is 1 */
+#define E1000_RCTL_SZ_16384       0x00010000    /* rx buffer size 16384 */
+#define E1000_RCTL_SZ_8192        0x00020000    /* rx buffer size 8192 */
+#define E1000_RCTL_SZ_4096        0x00030000    /* rx buffer size 4096 */
+#define E1000_RCTL_VFE            0x00040000    /* vlan filter enable */
+#define E1000_RCTL_CFIEN          0x00080000    /* canonical form enable */
+#define E1000_RCTL_CFI            0x00100000    /* canonical form indicator */
+#define E1000_RCTL_DPF            0x00400000    /* discard pause frames */
+#define E1000_RCTL_PMCF           0x00800000    /* pass MAC control frames */
+#define E1000_RCTL_BSEX           0x02000000    /* Buffer size extension */
+#define E1000_RCTL_SECRC          0x04000000    /* Strip Ethernet CRC */
+#define E1000_RCTL_FLXBUF_MASK    0x78000000    /* Flexible buffer size */
+#define E1000_RCTL_FLXBUF_SHIFT   27            /* Flexible buffer shift */
+
+#define E1000_RXD_STAT_DD       0x01    /* Descriptor Done */
+#define E1000_RXD_STAT_EOP      0x02    /* End of Packet */
+#define E1000_RXD_STAT_IXSM     0x04    /* Ignore checksum */
+#define E1000_RXD_STAT_VP       0x08    /* IEEE VLAN Packet */
+#define E1000_RXD_STAT_UDPCS    0x10    /* UDP xsum caculated */
+#define E1000_RXD_STAT_TCPCS    0x20    /* TCP xsum calculated */
+#define E1000_RXD_STAT_IPCS     0x40    /* IP xsum calculated */
+#define E1000_RXD_STAT_PIF      0x80    /* passed in-exact filter */
+#define E1000_RXD_STAT_IPIDV    0x200   /* IP identification valid */
+#define E1000_RXD_STAT_UDPV     0x400   /* Valid UDP checksum */
+#define E1000_RXD_STAT_ACK      0x8000  /* ACK Packet indication */
+#define E1000_RXD_ERR_CE        0x01    /* CRC Error */
+#define E1000_RXD_ERR_SE        0x02    /* Symbol Error */
+#define E1000_RXD_ERR_SEQ       0x04    /* Sequence Error */
+#define E1000_RXD_ERR_CXE       0x10    /* Carrier Extension Error */
+#define E1000_RXD_ERR_TCPE      0x20    /* TCP/UDP Checksum Error */
+#define E1000_RXD_ERR_IPE       0x40    /* IP Checksum Error */
+#define E1000_RXD_ERR_RXE       0x80    /* Rx Data Error */
+#define E1000_RXD_SPC_VLAN_MASK 0x0FFF  /* VLAN ID is in lower 12 bits */
+#define E1000_RXD_SPC_PRI_MASK  0xE000  /* Priority is in upper 3 bits */
+#define E1000_RXD_SPC_PRI_SHIFT 13
+#define E1000_RXD_SPC_CFI_MASK  0x1000  /* CFI is bit 12 */
+#define E1000_RXD_SPC_CFI_SHIFT 12
+
+#define E1000_RAH_AV  0x80000000        /* Receive descriptor valid */
+
+#define TX_RING_LEN 64
+#define ETH_MAX_LEN 1518
+#define RX_RING_LEN 128
+#define RX_BUF_LEN 2048
+
 int pci_e1000_attach(struct pci_func *pcif);
 int e1000_tx(uint8_t *data, uint32_t len);
+int e1000_rx(uint8_t *data, uint32_t *len);
 
 #endif  // SOL >= 6

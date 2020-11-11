@@ -96,6 +96,7 @@ static void
 thread_entry(void) {
     cur_tc->tc_entry(cur_tc->tc_arg);
     thread_halt();
+    //自动清理serve_thread这样会返回的进程，lwip会阻塞serve_thread，要是一直阻塞（thread_wait会交出控制权），总会切换到tmain，tmain定时创建新的lwip处理线程，一般不会阻塞，若有bug，才会创一个阻塞一个，直到爆栈
 }
 
 int
